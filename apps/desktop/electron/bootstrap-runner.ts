@@ -123,8 +123,13 @@ function downloadInstallScript(commit, destPath) {
   // Fetch from GitHub raw at the pinned commit. The raw URL with a SHA
   // is immutable (unlike a branch ref), so we don't need integrity
   // verification beyond "did the file we wrote pass a syntax probe."
+  //
+  // V6 fork (ADR-V6-010): fetch the installer from the RealityOS fork, not
+  // upstream hermes — otherwise a packaged V6 app first-launches into upstream
+  // and V6 never reaches the user. Keep this in sync with REPO_URL_* in
+  // scripts/install.sh and OFFICIAL_REPO_* in update-remote.ts.
   const scriptName = installScriptName()
-  const url = `https://raw.githubusercontent.com/NousResearch/hermes-agent/${commit}/scripts/${scriptName}`
+  const url = `https://raw.githubusercontent.com/awobaba1/realityos-desktop/${commit}/scripts/${scriptName}`
 
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.dirname(destPath), { recursive: true })

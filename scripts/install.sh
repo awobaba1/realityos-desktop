@@ -43,8 +43,11 @@ NC='\033[0m' # No Color
 BOLD='\033[1m'
 
 # Configuration
-REPO_URL_SSH="git@github.com:NousResearch/hermes-agent.git"
-REPO_URL_HTTPS="https://github.com/NousResearch/hermes-agent.git"
+# V6 fork (ADR-V6-010): clone the RealityOS fork, not upstream hermes, so the
+# installed agent IS V6 (PTG data layer + defaults). Keep in sync with the raw
+# URL in apps/desktop/electron/bootstrap-runner.ts.
+REPO_URL_SSH="git@github.com:awobaba1/realityos-desktop.git"
+REPO_URL_HTTPS="https://github.com/awobaba1/realityos-desktop.git"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 # INSTALL_DIR is resolved AFTER arg parsing and OS detection so we can pick an
 # FHS-style layout for root installs.  Track whether the user gave us an
