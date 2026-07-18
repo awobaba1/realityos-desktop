@@ -18,13 +18,33 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_backend():
-    """Tear down the cached backend between tests."""
-    from tools.computer_use.tool import reset_backend_for_tests
+    """Tear down the cached backend between tests.
+
+    Also restores the pre-ADR-V6-006 behaviour the existing 200+ tests were
+    written against: (a) computer_use auto-approves every action (the tool is
+    otherwise fail-closed with no callback — see
+    tools.computer_use.tool._request_approval), and (b) captures return the
+    multimodal image envelope (the cloud-vision gate in _capture_response
+    otherwise strips pixels when no local/allowlisted main model is
+    configured). The ADR-V6-006 deny paths themselves are exercised by the
+    dedicated tests in test_computer_use_v6_boundary.py, NOT here.
+    """
+    from tools.computer_use.tool import (
+        reset_backend_for_tests,
+        set_approval_callback,
+    )
     reset_backend_for_tests()
-    # Force the noop backend.
-    with patch.dict(os.environ, {"HERMES_COMPUTER_USE_BACKEND": "noop"}, clear=False):
+    set_approval_callback(lambda *a, **k: "always_approve")
+    # Force the noop backend and let captures carry pixels (existing tests
+    # assert the multimodal envelope / element formatting, not the boundary).
+    with patch.dict(os.environ, {"HERMES_COMPUTER_USE_BACKEND": "noop"}, clear=False), \
+         patch(
+             "tools.computer_use.tool._capture_pixels_may_leave_host",
+             return_value=(True, "test override — existing capture tests expect pixels"),
+         ):
         yield
     reset_backend_for_tests()
+    set_approval_callback(None)
 
 
 @pytest.fixture
@@ -2276,11 +2296,17 @@ class TestCaptureAfterExactTarget:
         capture_out = computer_use_tool.handle_computer_use({
             "action": "capture", "mode": "ax", "app": "org.freecad.FreeCAD",
         })
-        assert "error" not in json.loads(capture_out)
+        # handle_computer_use may return either a JSON string (text payload)
+        # or a ``_multimodal`` dict envelope (documented return type, see
+        # tool.py module docstring). Coerce before asserting so this identity
+        # test is robust to the ADR-V6-006 capture envelope.
+        _capture_parsed = capture_out if isinstance(capture_out, dict) else json.loads(capture_out)
+        assert "error" not in _capture_parsed
         click_out = computer_use_tool.handle_computer_use({
             "action": "click", "coordinate": [10, 20], "capture_after": True,
         })
-        assert "error" not in json.loads(click_out)
+        _click_parsed = click_out if isinstance(click_out, dict) else json.loads(click_out)
+        assert "error" not in _click_parsed
 
         tool_calls = [call.args for call in session.call_tool.call_args_list]
         gws_calls = [args for name, args in tool_calls if name == "get_window_state"]
@@ -3677,7 +3703,17 @@ class TestCuaToolCoverageExpansion:
         assert state == {"x": 1, "y": 2, "enabled": True}
 
     # ── Recording / replay ──────────────────────────────────────
+    # ADR-V6-006 disables screen recording / trajectory replay on the V6
+    # data boundary (no per-turn screenshot persistence, no mp4 sink). The
+    # five methods below now raise NotImplementedError at the CuaDriverBackend
+    # layer and are blocked in ``call_tool`` via ``_BLOCKED_CUA_TOOLS``. The
+    # NEW contract (deny + raise) is regressed in
+    # tests/tools/test_computer_use_v6_boundary.py::test_recording_methods_raise
+    # and ::test_call_tool_escape_hatch_blocks_recording. These legacy
+    # success-path tests are skipped, not deleted, so the coverage record is
+    # explicit about what the boundary removed.
 
+    @pytest.mark.skip(reason="ADR-V6-006: start_recording disabled; see test_computer_use_v6_boundary.py")
     def test_start_recording_with_video(self):
         backend = self._backend(structured={"recording": True, "video_active": True})
         out = backend.start_recording(output_dir="/tmp/rec", record_video=True)
@@ -3688,6 +3724,7 @@ class TestCuaToolCoverageExpansion:
         assert args["session"] == backend._session_id
         assert out["recording"] is True
 
+    @pytest.mark.skip(reason="ADR-V6-006: stop_recording disabled; see test_computer_use_v6_boundary.py")
     def test_stop_recording_returns_state(self):
         backend = self._backend(structured={"recording": False,
                                             "last_video_path": "/tmp/rec/r.mp4"})
@@ -3697,11 +3734,13 @@ class TestCuaToolCoverageExpansion:
         assert args["session"] == backend._session_id
         assert out["last_video_path"] == "/tmp/rec/r.mp4"
 
+    @pytest.mark.skip(reason="ADR-V6-006: get_recording_state disabled; see test_computer_use_v6_boundary.py")
     def test_get_recording_state(self):
         backend = self._backend(structured={"recording": False, "enabled": False})
         out = backend.get_recording_state()
         assert out["recording"] is False
 
+    @pytest.mark.skip(reason="ADR-V6-006: replay_trajectory disabled; see test_computer_use_v6_boundary.py")
     def test_replay_trajectory(self):
         backend = self._backend()
         backend.replay_trajectory(trajectory_dir="/tmp/rec",
@@ -3712,6 +3751,7 @@ class TestCuaToolCoverageExpansion:
         assert args["dry_run"] is True
         assert args["speed_factor"] == 2.0
 
+    @pytest.mark.skip(reason="ADR-V6-006: install_ffmpeg disabled; see test_computer_use_v6_boundary.py")
     def test_install_ffmpeg(self):
         backend = self._backend()
         backend.install_ffmpeg()

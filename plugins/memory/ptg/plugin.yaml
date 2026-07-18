@@ -1,0 +1,4 @@
+name: ptg
+version: "0.1.0"
+description: "RealityOS V6 personal timeline — local SQLite store mirroring V5's 13 production tables. Captures every real-user turn (流经即捕获), recalls via FTS5 + sqlite-vec. Activate with memory.provider: ptg. The capture hooks live in observability/ptg_capture."
+author: RealityOS

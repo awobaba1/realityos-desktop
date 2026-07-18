@@ -1,4 +1,8 @@
 .DS_Store
+
+# V5→V6 migration validation artifacts (throwaway; holds founder personal data)
+.migration-validate/
+*.validation.db
 /venv/
 /venv.old/
 /_pycache/

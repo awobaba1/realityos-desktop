@@ -2267,7 +2267,13 @@ DEFAULT_CONFIG = {
         # Set to a provider name to activate: "openviking", "mem0",
         # "hindsight", "holographic", "retaindb", "byterover".
         # Only ONE external provider is allowed at a time.
-        "provider": "",
+        #
+        # RealityOS V6 (ADR-V6-010): default "ptg" — the Personal Timeline
+        # Graph is V6's data brain (流经即捕获). The built-in curated memory
+        # stays active alongside it; ptg degrades gracefully to FTS5 when the
+        # [embeddings] extra is absent, so this default is safe on every
+        # install. agent_init.py loads whatever name sits here at every launch.
+        "provider": "ptg",
     },
 
     # Subagent delegation — override the provider:model used by delegate_task

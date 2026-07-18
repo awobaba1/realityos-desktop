@@ -76,8 +76,14 @@ def set_approval_callback(cb) -> None:
     _approval_callback = cb
 
 
-# Actions that read, not mutate. Always allowed.
-_SAFE_ACTIONS = frozenset({"capture", "wait", "list_apps"})
+# Actions that read, not mutate. Always allowed. NOTE (ADR-V6-006): `capture`
+# is intentionally NOT in this set — every screen read returns pixels that may
+# contain secrets / PII the user did not authorise exposing to the model
+# context, so `capture` MUST pass the approval gate in handle_computer_use.
+# (`_SAFE_ACTIONS` is retained for documentation only; the load-bearing check
+# is `if action in _DESTRUCTIVE_ACTIONS or action == "capture"` near the
+# dispatch entry, NOT a membership test against this set.)
+_SAFE_ACTIONS = frozenset({"wait", "list_apps"})
 
 # Actions that mutate user-visible state. Go through approval.
 _DESTRUCTIVE_ACTIONS = frozenset({
@@ -278,8 +284,14 @@ def handle_computer_use(args: Dict[str, Any], **kwargs) -> Any:
                     "hint": "Destructive system shortcuts are hard-blocked.",
                 })
 
-    # Approval gate (destructive actions only).
-    if action in _DESTRUCTIVE_ACTIONS:
+    # Approval gate — destructive actions AND captures (ADR-V6-006). Every
+    # `capture` is a screen read that returns pixels into the model context
+    # (and, for a cloud main model, potentially out of the host — see the
+    # cloud-vision allowlist in _capture_response), so it must pass the same
+    # user-confirmation gate as clicks/types. We use `or action == "capture"`
+    # rather than adding `capture` to _DESTRUCTIVE_ACTIONS so _summarize_action
+    # keeps treating it as a read (it has no destructive-summary branch).
+    if action in _DESTRUCTIVE_ACTIONS or action == "capture":
         err = _request_approval(action, args)
         if err is not None:
             return err
@@ -310,9 +322,26 @@ def _request_approval(action: str, args: Dict[str, Any]) -> Optional[str]:
         return None
     cb = _approval_callback
     if cb is None:
-        # No CLI approval wired — default allow. Gateway approval is handled
-        # one layer out via the normal tool-approval infra.
-        return None
+        # ADR-V6-006: fail-closed. With no approval callback wired in there
+        # is no user in the loop to confirm destructive actions or screen
+        # captures. The legacy "default allow" opened a P0 data-boundary hole
+        # — any caller (a sub-agent, a gateway path that forgot to install
+        # the hook, a background batch) could click/type/capture without the
+        # user ever seeing a prompt. Callers MUST register a callback via
+        # set_approval_callback() to unlock these actions. Read-only non-
+        # pixel actions (wait, list_apps) are unaffected — they never reach
+        # _request_approval because they are neither in _DESTRUCTIVE_ACTIONS
+        # nor equal to "capture".
+        logger.warning(
+            "computer_use: action=%r blocked — no approval callback "
+            "registered (fail-closed per ADR-V6-006).", action,
+        )
+        return json.dumps({
+            "error": "denied: no approval callback registered",
+            "action": action,
+            "hint": "Wire tools.computer_use.set_approval_callback() to "
+                    "surface a user prompt for destructive/capture actions.",
+        })
     summary = _summarize_action(action, args)
     try:
         verdict = cb(action, args, summary)
@@ -558,6 +587,58 @@ def _coerce_max_elements(value: Any) -> int:
     return n
 
 
+_VISION_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "::1")
+_CLOUD_VISION_ALLOW_ENV = "HERMES_COMPUTER_USE_CLOUD_VISION_ALLOW"
+
+
+def _capture_pixels_may_leave_host() -> tuple[bool, str]:
+    """Decide whether a capture's PNG bytes may be embedded in the tool_result
+    (and thus reach the main model). Returns ``(allowed, reason)``.
+
+    ADR-V6-006 data boundary: screen captures may contain secrets / PII, and
+    the bytes leave the host whenever the main model is a cloud provider.
+    Policy:
+      - main model resolved as LOCAL (provider base_url on loopback) -> allow
+        (bytes never leave the host);
+      - main model resolved as CLOUD -> allow only when explicitly listed in
+        ``HERMES_COMPUTER_USE_CLOUD_VISION_ALLOW`` (``provider[:model]``,
+        comma-separated);
+      - main model unreadable / unresolvable -> DENY (fail-closed): strip the
+        pixels and degrade to the AX/SOM text index. A misconfigured or
+        unreachable provider must never silently leak screen pixels.
+    """
+    try:
+        from agent.auxiliary_client import _read_main_provider, _read_main_model
+        provider = (_read_main_provider() or "").strip().lower()
+        model = (_read_main_model() or "").strip().lower()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "computer_use: vision gate deny — cannot read main provider (%s)", exc,
+        )
+        return False, "main provider unreadable (fail-closed)"
+    if not provider:
+        return False, "no main provider configured (fail-closed)"
+
+    base_url = ""
+    try:
+        from providers import get_provider_profile
+        profile = get_provider_profile(provider)
+        base_url = (getattr(profile, "base_url", "") or "").lower()
+    except Exception:  # pragma: no cover - defensive
+        pass
+    if any(host in base_url for host in _VISION_LOCAL_HOSTS):
+        return True, f"local main provider ({provider})"
+
+    allow = os.environ.get(_CLOUD_VISION_ALLOW_ENV, "").strip()
+    if not allow:
+        return False, f"cloud provider {provider!r} not on allowlist (env unset)"
+    entries = [e.strip().lower() for e in allow.split(",") if e.strip()]
+    key = f"{provider}:{model}" if model else provider
+    if key in entries or provider in entries:
+        return True, f"cloud provider {provider} allowlisted"
+    return False, f"cloud provider {provider}:{model} not in allowlist"
+
+
 def _capture_response(cap: CaptureResult, max_elements: int = _DEFAULT_MAX_ELEMENTS) -> Any:
     total_elements = len(cap.elements)
     visible_elements = cap.elements[:max_elements]
@@ -600,13 +681,31 @@ def _capture_response(cap: CaptureResult, max_elements: int = _DEFAULT_MAX_ELEME
     summary = "\n".join(summary_lines)
 
     if cap.png_b64 and cap.mode != "ax" and not image_too_small:
-        # Decide whether to hand the screenshot to the auxiliary.vision
-        # pipeline (text-only result) or keep the multimodal envelope (main
-        # model handles vision natively). Issue #24015: previously the
-        # multimodal envelope was returned unconditionally, so non-vision
-        # main models tripped HTTP 404 / 400 at the provider boundary even
-        # when auxiliary.vision was explicitly configured to handle this.
-        if _should_route_through_aux_vision():
+        # ADR-V6-006 cloud-vision gate: screen pixels may contain secrets/PII
+        # and leave the host when the main model is a cloud provider. Local
+        # main models pass; cloud models pass only when explicitly listed in
+        # HERMES_COMPUTER_USE_CLOUD_VISION_ALLOW; unreadable => deny
+        # (fail-closed) so a misconfigured provider never silently leaks
+        # screen pixels. When denied we append a note and fall through to the
+        # AX/SOM text payload below (element-index actions still work).
+        _pixels_allowed, _gate_reason = _capture_pixels_may_leave_host()
+        if not _pixels_allowed:
+            logger.info(
+                "computer_use: screenshot stripped from tool_result (%s)",
+                _gate_reason,
+            )
+            summary_lines.append(
+                "  (screenshot omitted per ADR-V6-006 data boundary: the "
+                "active main model is a cloud provider not on "
+                "HERMES_COMPUTER_USE_CLOUD_VISION_ALLOW, or could not be "
+                "verified as local. Element-index actions still work — "
+                "drive via the element list above.)"
+            )
+        # auxiliary.vision routing is disabled under ADR-V6-006
+        # (_should_route_through_aux_vision always returns False), so the
+        # multimodal envelope is the only pixel path. The branch is retained
+        # for clarity / a future local-VLM routing hook.
+        if _pixels_allowed and _should_route_through_aux_vision():
             routed = _route_capture_through_aux_vision(cap, summary)
             if routed is not None:
                 return routed
@@ -653,18 +752,22 @@ def _capture_response(cap: CaptureResult, max_elements: int = _DEFAULT_MAX_ELEME
             _mime = "image/jpeg" if _b64_prefix.startswith("/9j/") else "image/png"
         # The multimodal response carries the screenshot, not the AX
         # elements array, so a "response truncated to N of M elements"
-        # note would be inaccurate — skip it on this branch.
-        return {
-            "_multimodal": True,
-            "content": [
-                {"type": "text", "text": summary},
-                {"type": "image_url",
-                 "image_url": {"url": f"data:{_mime};base64,{cap.png_b64}"}},
-            ],
-            "text_summary": summary,
-            "meta": {"mode": cap.mode, "width": response_width, "height": response_height,
-                     "elements": total_elements, "png_bytes": cap.png_bytes_len},
-        }
+        # note would be inaccurate — skip it on this branch. When the
+        # cloud-vision gate denied pixels (_pixels_allowed is False) we do
+        # NOT return here — execution falls through to the AX/SOM text
+        # payload below so the model still gets the element index.
+        if _pixels_allowed:
+            return {
+                "_multimodal": True,
+                "content": [
+                    {"type": "text", "text": summary},
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:{_mime};base64,{cap.png_b64}"}},
+                ],
+                "text_summary": summary,
+                "meta": {"mode": cap.mode, "width": response_width, "height": response_height,
+                         "elements": total_elements, "png_bytes": cap.png_bytes_len},
+            }
     # AX-only (or image-missing fallback): text path actually carries the
     # `elements` array, so the truncation note applies here.
     if truncated_elements:
@@ -722,33 +825,21 @@ def _shrink_capture_for_vision(raw: bytes, ext: str,
 def _should_route_through_aux_vision() -> bool:
     """Return True when ``_capture_response`` should hand the PNG to aux vision.
 
-    Reads the active main provider/model and the loaded config and asks the
-    routing helper. Any failure (config import, runtime override missing,
-    etc.) returns False so the existing multimodal envelope continues to be
-    returned — fail open on the routing decision so a broken config can
-    never silently drop the screenshot for vision-capable main models.
+    ADR-V6-006: ALWAYS returns False under RealityOS. The aux-vision path
+    (``_route_capture_through_aux_vision``) materialises the captured
+    screenshot to ``$HERMES_HOME/cache/vision/`` and forwards it to an
+    external vision provider (default Gemini 3 Flash via OpenRouter — see
+    ``tools.vision_tools.vision_analyze_tool``). Both behaviours violate the
+    V6 data boundary: screenshots must not persist to disk and must not
+    leave the host to a third-party vision API. The main-model multimodal
+    envelope (or the AX/SOM text fallback when the main model is a
+    non-allowlisted cloud provider) is the only permitted pixel path. The
+    cloud-vision allowlist gate in ``_capture_response`` already strips the
+    image when the main model is a non-allowlisted cloud provider, so a
+    non-vision main model degrades to the AX/SOM text index instead of
+    leaking to an external vision API.
     """
-    try:
-        from agent.auxiliary_client import _read_main_model, _read_main_provider
-        from hermes_cli.config import load_config
-        from tools.computer_use.vision_routing import (
-            should_route_capture_to_aux_vision,
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("computer_use: aux-vision routing import failed: %s", exc)
-        return False
-    try:
-        provider = _read_main_provider()
-        model = _read_main_model()
-        cfg = load_config()
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("computer_use: aux-vision routing config read failed: %s", exc)
-        return False
-    try:
-        return bool(should_route_capture_to_aux_vision(provider, model, cfg))
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("computer_use: aux-vision routing decision failed: %s", exc)
-        return False
+    return False
 
 
 def _route_capture_through_aux_vision(

@@ -29,6 +29,19 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+# ADR-V6-006: the entire aux-vision routing feature this file regresses is
+# DISABLED under RealityOS — tools.computer_use.tool._should_route_through_aux_vision()
+# always returns False, and the cloud-vision gate in _capture_response strips
+# pixels for non-allowlisted main models. Equivalent coverage of the NEW
+# boundary (image stripped vs kept, aux never triggered) lives in
+# test_computer_use_v6_boundary.py. Skip the whole module rather than rewrite
+# 468 lines of assertions for a feature that no longer exists; remove this
+# skip only if aux-vision is re-enabled behind a local VLM.
+pytestmark = pytest.mark.skip(
+    reason="ADR-V6-006 disables aux-vision routing; covered by test_computer_use_v6_boundary.py",
+)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------

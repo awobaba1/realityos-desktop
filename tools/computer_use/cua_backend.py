@@ -2168,58 +2168,57 @@ class CuaDriverBackend(ComputerUseBackend):
         out = self._session.call_tool("get_agent_cursor_state", args)
         return out.get("structuredContent") or {}
 
-    # ── Recording / replay ──────────────────────────────────────────
+    # ── Recording / replay — DISABLED under ADR-V6-006 ─────────────
+    #
+    # Trajectory recording (per-turn screenshots + action JSON) and
+    # full-display mp4 capture both persist screen pixels to disk — exactly
+    # what the V6 data boundary prohibits. Every method below is a hard
+    # no-op that raises so any legacy caller fails closed instead of
+    # silently leaking pixels. Callers that need an action audit trail
+    # should drive it through the normal tool-logging infra (which records
+    # tool names + args, never screen pixels).
 
     def start_recording(self, *, output_dir: str,
                         record_video: bool = False) -> Dict[str, Any]:
-        """Enable trajectory recording (per-turn screenshots + action
-        JSON) to ``output_dir``. ``record_video=True`` ALSO captures
-        the main display to ``<output_dir>/recording.mp4`` (H.264).
-        Recording ownership is keyed by this run's session id so
-        concurrent runs don't fight over the recorder."""
-        out = self._session.call_tool("start_recording", {
-            "output_dir": output_dir,
-            "record_video": bool(record_video),
-            "session": self._session_id,
-        })
-        return out.get("structuredContent") or {}
+        """DISABLED (ADR-V6-006): screen trajectory + mp4 capture violates
+        the data boundary. Raises ``NotImplementedError``."""
+        raise NotImplementedError(
+            "start_recording is disabled under ADR-V6-006: per-turn "
+            "screenshot persistence and full-display mp4 capture violate "
+            "the data boundary."
+        )
 
     def stop_recording(self) -> Dict[str, Any]:
-        """Disable recording and finalise the mp4 (if video was on).
-        Returns the recorder's final state including ``last_video_path``."""
-        out = self._session.call_tool("stop_recording", {
-            "session": self._session_id,
-        })
-        return out.get("structuredContent") or {}
+        """DISABLED (ADR-V6-006): recording is disabled, so there is nothing
+        to stop. Raises ``NotImplementedError``."""
+        raise NotImplementedError(
+            "stop_recording is disabled under ADR-V6-006 (recording disabled)."
+        )
 
     def get_recording_state(self) -> Dict[str, Any]:
-        """Return the current recorder state without changing it.
-        Shape: ``{recording, enabled, output_dir, next_turn,
-        last_video_path, last_error, owner, video_active}``."""
-        out = self._session.call_tool(
-            "get_recording_state", {"session": self._session_id}
+        """DISABLED (ADR-V6-006): recording is disabled. Raises
+        ``NotImplementedError``."""
+        raise NotImplementedError(
+            "get_recording_state is disabled under ADR-V6-006."
         )
-        return out.get("structuredContent") or {}
 
     def replay_trajectory(self, *, trajectory_dir: str,
                           dry_run: bool = False,
                           speed_factor: float = 1.0) -> Dict[str, Any]:
-        """Replay a prior recording's turn stream by re-invoking each
-        turn's tool call in lexical order. ``dry_run=True`` logs without
-        actually firing the tools."""
-        return self._session.call_tool("replay_trajectory", {
-            "trajectory_dir": trajectory_dir,
-            "dry_run": bool(dry_run),
-            "speed_factor": float(speed_factor),
-            "session": self._session_id,
-        })
+        """DISABLED (ADR-V6-006): replay reads historical screenshot
+        trajectories, which can no longer be produced. Raises
+        ``NotImplementedError``."""
+        raise NotImplementedError(
+            "replay_trajectory is disabled under ADR-V6-006 (recording "
+            "disabled, so there are no pixel trajectories to replay)."
+        )
 
     def install_ffmpeg(self) -> Dict[str, Any]:
-        """Bootstrap ffmpeg for ``start_recording(record_video=True)``
-        on Linux / Windows. macOS records natively via ScreenCaptureKit
-        and doesn't need ffmpeg."""
-        return self._session.call_tool(
-            "install_ffmpeg", {"session": self._session_id}
+        """DISABLED (ADR-V6-006): ffmpeg was only needed for
+        ``start_recording(record_video=True)``, which is disabled.
+        Raises ``NotImplementedError``."""
+        raise NotImplementedError(
+            "install_ffmpeg is disabled under ADR-V6-006 (recording disabled)."
         )
 
     # ── Config ──────────────────────────────────────────────────────
@@ -2271,6 +2270,14 @@ class CuaDriverBackend(ComputerUseBackend):
 
     # ── Generic escape hatch ────────────────────────────────────────
 
+    # ADR-V6-006: cua-driver tools that persist screen pixels to disk
+    # (recording/replay). Blocked at the escape hatch too so a caller cannot
+    # bypass the disabled wrapper methods by naming them directly.
+    _BLOCKED_CUA_TOOLS = frozenset({
+        "start_recording", "stop_recording", "get_recording_state",
+        "replay_trajectory", "install_ffmpeg",
+    })
+
     def call_tool(self, name: str, args: Optional[Dict[str, Any]] = None,
                   *, timeout: float = 30.0) -> Dict[str, Any]:
         """Call any cua-driver MCP tool by name with arbitrary args.
@@ -2278,7 +2285,16 @@ class CuaDriverBackend(ComputerUseBackend):
         via setdefault). For tools the wrapper doesn't already type-
         wrap, this is the supported escape hatch — preferred over
         reaching for ``self._session.call_tool`` directly because it
-        keeps the session-id contract consistent with everything else."""
+        keeps the session-id contract consistent with everything else.
+
+        ADR-V6-006: tools in ``_BLOCKED_CUA_TOOLS`` (screen recording /
+        replay) raise to enforce the data boundary even via the escape
+        hatch."""
+        if name in self._BLOCKED_CUA_TOOLS:
+            raise NotImplementedError(
+                f"cua-driver tool {name!r} is blocked under ADR-V6-006 "
+                "(screen recording/replay violates the data boundary)."
+            )
         payload = dict(args) if args else {}
         payload.setdefault("session", self._session_id)
         return self._session.call_tool(name, payload, timeout=timeout)

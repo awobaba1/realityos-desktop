@@ -1,0 +1,8 @@
+name: ptg_capture
+version: "0.1.0"
+description: "RealityOS V6 capture observer — wires post_tool_call / pre_gateway_dispatch / on_session_end hooks to the shared PTGStore. Phase 0: audit-LOG only (semantic sinks arrive with the extraction phase). Shares the PTGStore singleton with memory/ptg. Enable with: hermes plugins enable observability/ptg_capture."
+author: RealityOS
+hooks:
+  - post_tool_call
+  - pre_gateway_dispatch
+  - on_session_end

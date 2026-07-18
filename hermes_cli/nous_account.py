@@ -32,6 +32,12 @@ _ACCOUNT_INFO_CACHE_TTL = 60
 _account_info_cache: tuple[str, float, "NousPortalAccountInfo"] | None = None
 _ACCOUNT_INFO_CACHE_LOCK = threading.Lock()
 
+# V6 (ADR-V6-006): Nous entitlement dormant. Single-point kill switch — every
+# caller of get_nous_portal_account_info() gets logged_in=False and fails
+# closed. Set False to re-enable the real OAuth path (not used in V6; provider
+# is 智谱 GLM-5.2 / DeepSeek per ADR-093).
+NOUS_DORMANT = True
+
 
 @dataclass(frozen=True)
 class NousPortalSubscriptionInfo:
@@ -331,6 +337,11 @@ def get_nous_portal_account_info(
     ``/api/oauth/account`` and bypasses the short-lived cache. JWT claims are
     decoded locally for UX gating only; server APIs remain authoritative.
     """
+    # V6 (ADR-V6-006): Nous dormant — single-point kill switch. All callers see
+    # logged_in=False and fail-closed. Flip NOUS_DORMANT=False to restore the
+    # real OAuth path (unused in V6; provider is 智谱/DeepSeek per ADR-093).
+    if NOUS_DORMANT:
+        return NousPortalAccountInfo(logged_in=False, source="none", fresh=False)
     try:
         from hermes_cli.auth import get_provider_auth_state
 

@@ -167,16 +167,29 @@ it. You rarely need to focus explicitly — passing `app=...` to
 `capture` / `click` / `type` will target that app's frontmost window
 automatically.
 
-## Delivering screenshots to the user
+## Screenshots are read-only context — NEVER persist them
 
-When the user is on a messaging platform (Telegram, Discord, etc.) and
-you took a screenshot they should see, save it somewhere durable and
-use `MEDIA:/absolute/path.png` in your reply. cua-driver's screenshots
-are PNG or JPEG bytes (mimeType is on the response); write them out
-with `write_file` or the terminal (`base64 -d`).
+Under the RealityOS V6 data boundary (ADR-V6-006), screenshots are an
+**execution-only** signal: they enter the current conversation context so
+you can decide what to click, and that is the only place they may exist.
 
-On CLI, you can just describe what you see — the screenshot data stays
-in your conversation context.
+**Hard rules:**
+1. **Never** write a screenshot to disk — no `write_file`, no `base64 -d`
+   redirect, no `cp`/`mv` of any image blob you received from
+   `computer_use(action="capture")`.
+2. **Never** re-encode, attach, or forward a screenshot to another tool
+   (`x_search`, `email`, `discord_tool`, `vision_analyze`,
+   `image_generation_tool`, MCP plugins, …). The bytes stay inside the
+   `computer_use` tool_result that produced them.
+3. **Never** echo the base64 string into terminal output, a file, the
+   memory tool, a log, or a downstream API call.
+4. When the user on a messaging platform *needs* to see something,
+   **describe what you see in text** — do not paste the image.
+
+If you find yourself wanting to "save this screenshot for later," stop —
+that impulse is the exact behaviour the V6 boundary prohibits. The tool
+already gives you the AX/SOM element index as text; that text is what you
+persist and reason on, never the pixels.
 
 ## Safety — these are hard rules
 

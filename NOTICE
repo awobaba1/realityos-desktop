@@ -1,0 +1,19 @@
+RealityOS Desktop
+Copyright (c) 2026 RealityOS Project
+
+This product includes software originally developed by Nous Research
+(https://github.com/NousResearch/hermes-agent), used under the MIT License.
+
+Fork base: hermes-agent @ commit 0f102fa
+Original license: MIT (see ./LICENSE)
+
+Per the MIT License terms, the above copyright notice and this permission
+notice are included in all copies or substantial portions of the Software.
+
+RealityOS V6 modifications (data-brain swap: PTGProvider / Atomizer /
+HL-12 atoms / Personal RAG / sovereignty layer / net-policy) are built on
+top of the inherited Hermes "body" (gateway channels / runtime / skills /
+desktop shell / conversation_loop), as recorded in:
+  - docs/RealityOS-V6/Phase0-实施计划.md
+  - docs/adr/V6/ADR-V6-001 (Fork decision)
+  - RealityOS-V6-架构设计.md (REV-7 product decisions)

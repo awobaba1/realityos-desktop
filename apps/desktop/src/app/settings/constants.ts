@@ -238,7 +238,10 @@ export const ENUM_OPTIONS: Record<string, string[]> = {
   'code_execution.mode': ['project', 'strict'],
   'context.engine': ['compressor', 'default', 'custom'],
   'delegation.reasoning_effort': ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-  'memory.provider': ['', 'builtin', 'hindsight', 'honcho'],
+  // RealityOS V6 (ADR-V6-010): ptg is the default memory provider — the
+  // Personal Timeline Graph data brain. Listed first so the settings UI shows
+  // the active V6 default as a selectable option.
+  'memory.provider': ['ptg', '', 'builtin', 'hindsight', 'honcho'],
   // Terminal execution backends — kept in sync with the dispatch ladder in
   // tools/terminal_tool.py::_create_environment (local/docker/singularity/
   // modal/daytona/ssh). Remote backends need extra env (image, tokens, host).
