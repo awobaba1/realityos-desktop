@@ -1,0 +1,93 @@
+name: desktop-build
+
+# Build RealityOS desktop installers (mac dmg + win nsis) via CI runners.
+# Implements ADR-V6-010 decision 3: distribution builds on CI, not local Wine.
+#   * macos-latest → RealityOS-<v>-mac-arm64.dmg  (reproduces the validated
+#     local mac build; the dmg is the reference installer.)
+#   * windows-latest → RealityOS-<v>-win-x64.exe (nsis)  (new: cross-platform
+#     coverage without Wine/cross-compile on mac.)
+#
+# Signing = none (D4 internal-test). build.win.signAndEditExecutable=false and
+# mac skips signing when no Developer ID is present (notarize.mjs is env-gated
+# off when APPLE_API_* are absent). The build stamp (install-stamp.json) is
+# stamped from the tag's commit (fromLocalGit) — that commit is pushed, so a
+# first launch can fetch install.sh at the pinned commit (ADR-V6-010 §决策2).
+#
+# Triggers: release tags (v*) + manual (workflow_dispatch). Not on every push
+# — installer builds are heavy; artifacts are release-scoped.
+#
+# Validation note: YAML + command surface validated locally; the first tagged
+# run is the green-signal (3-verify pattern, cf. ADR-084/086): success status +
+# artifact present + (mac) matching the locally-validated dmg.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref (branch/tag/SHA) to build"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            dist_script: "dist:mac:dmg"
+            artifact_glob: "RealityOS-*-mac-arm64.dmg"
+            artifact_name: mac-dmg
+          - os: windows-latest
+            dist_script: "dist:win:nsis"
+            artifact_glob: "RealityOS-*-win-*.exe"
+            artifact_name: win-nsis
+
+    steps:
+      - name: Checkout (full history for build stamp)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+
+      - name: Install desktop workspace deps
+        shell: bash
+        run: npm install --workspace apps/desktop
+
+      - name: Build installer (${{ matrix.dist_script }})
+        shell: bash
+        run: npm run ${{ matrix.dist_script }} --workspace apps/desktop
+
+      - name: Validate bundle (mac only — test-desktop validates the dmg/zip layout)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: npm run test:desktop:dmg --workspace apps/desktop
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: apps/desktop/release/${{ matrix.artifact_glob }}
+          if-no-files-found: error
+          retention-days: 30

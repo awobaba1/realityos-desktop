@@ -1295,9 +1295,25 @@ clone_repo() {
     if [ -n "$INSTALL_COMMIT" ]; then
         log_info "Pinning checkout to commit $INSTALL_COMMIT..."
         if ! git cat-file -e "$INSTALL_COMMIT^{commit}" 2>/dev/null; then
-            git fetch origin "$INSTALL_COMMIT" || true
+            # Shallow clone (--depth 1) only has the branch tip; the pinned
+            # commit may not be present. Resolve it BEFORE checkout: try a
+            # direct SHA fetch first; if the server refuses a bare-SHA fetch
+            # (common on shallow public clones), unshallow to make history
+            # resolvable. C7 (no silent failure): a silently-skipped pin means
+            # the running agent's version is unknown — exactly the version-skew
+            # hazard the install-stamp exists to prevent. The final checkout is
+            # guarded below and fails loud if the commit stays unresolvable.
+            if ! git fetch origin "$INSTALL_COMMIT" 2>/dev/null; then
+                log_info "Direct SHA fetch refused; unshallowing to resolve $INSTALL_COMMIT..."
+                git fetch --unshallow origin 2>/dev/null || git fetch origin 2>/dev/null || true
+            fi
         fi
-        git checkout --detach "$INSTALL_COMMIT"
+        if ! git checkout --detach "$INSTALL_COMMIT" 2>/dev/null; then
+            log_error "Could not pin checkout to $INSTALL_COMMIT (not resolvable after fetch)."
+            log_error "HEAD remains at $(git rev-parse HEAD 2>/dev/null). Aborting to avoid version skew (C7)."
+            exit 1
+        fi
+        log_success "Pinned checkout to commit $INSTALL_COMMIT"
     fi
 
     log_success "Repository ready"
