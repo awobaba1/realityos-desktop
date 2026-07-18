@@ -209,7 +209,23 @@ def test_convert_row_applies_per_column_converters():
     assert "embedding" not in out
 
 
-def test_convert_row_missing_v5_key_becomes_none():
+def test_convert_row_missing_v5_key_is_omitted_so_schema_default_applies():
+    """Regression (real-data 2026-07-18): a V6 column whose V5 key is ABSENT
+    (the V5 schema lacks the column — e.g. V6-added ``ser_source``) must be
+    OMITTED from the converted row, so the INSERT does not name it and SQLite
+    applies the V6 column DEFAULT. The previous behavior emitted ``None``, which
+    stored explicit NULL, defeated the DEFAULT, and tripped NOT NULL — rejecting
+    100% of real feeling_events/entities rows in the 2026-06-14 dump."""
     v5 = {"id": "x"}
     out = convert_row(v5, [("id", "id", "text"), ("absent", "absent", "json")])
-    assert out == {"id": "x", "absent": None}
+    assert out == {"id": "x"}              # "absent" omitted — not {"absent": None}
+    assert "absent" not in out
+
+
+def test_convert_row_present_but_null_key_still_emits_none():
+    """The mirror case: a V5 key that IS present but NULL (a genuinely nullable
+    column where this row is null) must still emit None — distinct from a column
+    the V5 schema lacks entirely. This keeps nullable columns correct."""
+    v5 = {"id": "x", "memo_id": None}
+    out = convert_row(v5, [("id", "id", "text"), ("memo_id", "memo_id", "uuid")])
+    assert out == {"id": "x", "memo_id": None}

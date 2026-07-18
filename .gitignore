@@ -1,7 +1,8 @@
 .DS_Store
 
 # V5→V6 migration validation artifacts (throwaway; holds founder personal data)
-.migration-validate/
+# Covers _validate_real_migration.py default + any --work variant (e.g. -613).
+.migration-validate*/
 *.validation.db
 /venv/
 /venv.old/

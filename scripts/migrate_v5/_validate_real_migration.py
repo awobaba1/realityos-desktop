@@ -10,9 +10,10 @@ Pipeline (all local, no Postgres/Docker/asyncpg):
   2. Pre-flight: every mapped V6 column must exist in the created schema (a
      missing column would crash the batch flush; catch it cleanly first).
   3. ``import_dump`` runs the REAL importer unchanged into a throwaway ptg.db.
-  4. Reconcile per-table read/written/skipped/errors. On a fresh DB the invariant
-     is ``skipped == 0 and errors == 0 and written == read`` for ALL 13 tables —
-     any non-zero skip/error is a real-data edge case the synthetic tests missed.
+  4. Reconcile per-table read/written/pk_conflict/violation/errors. On a fresh DB
+     the invariant is ``pk_conflict=0, violation=0, errors=0, written=read`` for
+     ALL 13 tables — any non-zero violation/error is a real-data edge case (a row
+     a NOT NULL/CHECK constraint rejects) the synthetic tests missed.
   5. Spot-check real content (founder memos, CJK FTS recall, a relation, an
      llm_call_log replay record) and print a verdict.
 
@@ -78,6 +79,12 @@ def main(argv=None) -> int:
     p.add_argument("dump", help="Path to the V5 pg_dump (.sql or .sql.gz).")
     p.add_argument("--work", default=str(_REPO_ROOT / ".migration-validate"),
                    help="Working dir for JSONL + throwaway ptg.db.")
+    p.add_argument("--counts-only", action="store_true",
+                   help="PII-safe mode: report only per-table counts + the fresh-DB "
+                        "invariant + a dump-agnostic runtime gate. Skips the content "
+                        "spot-checks (which print real memo text) and uses count-based "
+                        "runtime assertions — so NO real memo content reaches stdout. "
+                        "Use this for automated/re-validated runs (ADR-403 PII hygiene).")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -89,12 +96,12 @@ def main(argv=None) -> int:
         return 2
 
     # 1. Parse dump → JSONL (exporter-equivalent format).
-    print(f"\n[1/5] Parsing {dump.name} → JSONL …")
+    print(f"\n[1/6] Parsing {dump.name} → JSONL …")
     parsed = _parse.parse_dump(dump, work, IMPORT_ORDER)
     print(f"      parsed rows: {parsed}")
 
     # 2. Fresh throwaway store + pre-flight column existence.
-    print("\n[2/5] Pre-flight: mapped columns exist in schema?")
+    print("\n[2/6] Pre-flight: mapped columns exist in schema?")
     db = work / "ptg.validation.db"
     if db.exists():
         db.unlink()
@@ -107,28 +114,37 @@ def main(argv=None) -> int:
     print("      ✓ every mapped V6 column exists in the created schema.")
 
     # 3. Run the REAL importer.
-    print("\n[3/5] Importing JSONL → ptg.db (real importer) …")
+    print("\n[3/6] Importing JSONL → ptg.db (real importer) …")
     report = import_dump(store, work, tables=IMPORT_ORDER)
 
-    # 4. Reconcile.
-    print("\n[4/5] Reconcile (fresh-DB invariant: skipped=0, errors=0, written=read):")
+    # 4. Reconcile. Fresh-DB invariant: pk_conflict=0 (nothing pre-exists),
+    # violation=0 (no row rejected by a NOT NULL/CHECK constraint), errors=0,
+    # and written==read. A non-zero `violation` here is the real-data edge case
+    # the synthetic tests can't surface — now VISIBLE (DLQ'd) instead of silent.
+    print("\n[4/6] Reconcile (fresh-DB invariant: pk_conflict=0, violation=0, errors=0, written=read):")
     fail = False
     for table in IMPORT_ORDER:
         s = report["tables"][table]
-        ok = (s["errors"] == 0 and s["skipped"] == 0 and
+        ok = (s["errors"] == 0 and s["pk_conflict"] == 0 and s["violation"] == 0 and
               (s["written"] == s["read"] or s["read"] == 0))
         flag = "✓" if ok else "❌"
         if not ok:
             fail = True
         print(f"      {flag} {table:20s} read={s['read']:4d} written={s['written']:4d} "
-              f"skipped={s['skipped']:4d} errors={s['errors']:4d}")
+              f"pk_conflict={s['pk_conflict']:4d} violation={s['violation']:4d} errors={s['errors']:4d}")
     t = report["totals"]
-    print(f"      {'─'*60}")
+    print(f"      {'─'*72}")
     print(f"        TOTAL              read={t['read']:4d} written={t['written']:4d} "
-          f"skipped={t['skipped']:4d} errors={t['errors']:4d}")
+          f"pk_conflict={t['pk_conflict']:4d} violation={t['violation']:4d} errors={t['errors']:4d}")
+    if t["violation"] or t["errors"]:
+        n_dlq = store.count_rows("dlq_messages")
+        print(f"      ⚠ {t['violation']} constraint-violation + {t['errors']} parse-error row(s) "
+              f"routed to DLQ ({n_dlq} DLQ rows, C7) — inspect for offending rows.")
 
-    # 5. Spot-checks on real content.
-    print("\n[5/5] Spot-checks on real founder data:")
+    # 5. Founder identification + ensure_founder run in BOTH modes (step 6 needs
+    # founder.id). The content spot-checks print real memo text → only without
+    # --counts-only (PII hygiene, ADR-403).
+    print("\n[5/6] Founder + counts:")
     conn = store._conn
     n_users = conn.execute("SELECT COUNT(*) FROM realityos_users").fetchone()[0]
     n_memos = conn.execute("SELECT COUNT(*) FROM memos").fetchone()[0]
@@ -139,45 +155,41 @@ def main(argv=None) -> int:
         "SELECT u.id, u.email, u.nickname, u.is_founder, "
         "(SELECT COUNT(*) FROM memos m WHERE m.user_id=u.id) AS memo_n "
         "FROM realityos_users u ORDER BY memo_n DESC LIMIT 1").fetchone()
-    print(f"      users={n_users}  memos={n_memos}")
-    print(f"      real founder (most memos): {dict(founder)} "
-          f"→ migrated is_founder={founder['is_founder']}")
+    print(f"      users={n_users}  memos={n_memos}  founder_memo_n={founder['memo_n']}")
     store.ensure_founder(founder["id"], founder["email"] or "",
                          nickname=founder["nickname"] or "")
-    promoted = conn.execute(
-        "SELECT is_founder FROM realityos_users WHERE id=?",
-        (founder["id"],)).fetchone()
-    pb = "✓ promoted to 1" if promoted["is_founder"] else "❌ still 0"
-    print(f"      after ensure_founder: is_founder={promoted['is_founder']} ({pb})")
-
-    # CJK FTS recall — the base-tier capture surface must work on real text.
-    # Generic CJK terms (2-char) that appear in the real data — person-name
-    # queries are redacted from this committed artifact (covered instead by the
-    # 3-char unit test). Substitute real terms when re-running on a fresh dump.
-    for q in ("北京", "辞职"):
-        hits = store.search_memos_fts(q, limit=3)
-        snippet = hits[0]["source_text"][:30] if hits else "(none)"
-        print(f"      FTS '{q}': {len(hits)} hit(s) — e.g. {snippet}")
-
-    # A relation + an llm_call_log (C6 replay substrate) round-tripped intact.
-    rel = conn.execute(
-        "SELECT relation_type, confidence FROM relations LIMIT 1").fetchone()
-    llm = conn.execute(
-        "SELECT model, provider, schema_valid FROM llm_call_logs LIMIT 1").fetchone()
-    print(f"      relation sample: {dict(rel) if rel else None}")
-    print(f"      llm_call_log sample: {dict(llm) if llm else None}")
-
-    # Integrity: confirm one founder memo's CJK text survived byte-faithfully.
-    sample = conn.execute(
-        "SELECT source_text FROM memos WHERE source_text LIKE '%北京%' LIMIT 1"
-    ).fetchone()
-    print(f"      CJK fidelity (北京 memo): "
-          f"{sample['source_text'][:40] if sample else '(not found)'}")
+    if not args.counts_only:
+        print(f"      real founder (most memos): {dict(founder)} "
+              f"→ migrated is_founder={founder['is_founder']}")
+        promoted = conn.execute(
+            "SELECT is_founder FROM realityos_users WHERE id=?",
+            (founder["id"],)).fetchone()
+        pb = "✓ promoted to 1" if promoted["is_founder"] else "❌ still 0"
+        print(f"      after ensure_founder: is_founder={promoted['is_founder']} ({pb})")
+        # CJK FTS recall — person-name queries redacted from this committed
+        # artifact (covered by the 3-char unit test). Substitute real terms when
+        # re-running on a fresh dump.
+        for q in ("北京", "辞职"):
+            hits = store.search_memos_fts(q, limit=3)
+            snippet = hits[0]["source_text"][:30] if hits else "(none)"
+            print(f"      FTS '{q}': {len(hits)} hit(s) — e.g. {snippet}")
+        # A relation + an llm_call_log (C6 replay substrate) round-tripped intact.
+        rel = conn.execute(
+            "SELECT relation_type, confidence FROM relations LIMIT 1").fetchone()
+        llm = conn.execute(
+            "SELECT model, provider, schema_valid FROM llm_call_logs LIMIT 1").fetchone()
+        print(f"      relation sample: {dict(rel) if rel else None}")
+        print(f"      llm_call_log sample: {dict(llm) if llm else None}")
+        # Integrity: confirm one founder memo's CJK text survived byte-faithfully.
+        sample = conn.execute(
+            "SELECT source_text FROM memos WHERE source_text LIKE '%北京%' LIMIT 1"
+        ).fetchone()
+        print(f"      CJK fidelity (北京 memo): "
+              f"{sample['source_text'][:40] if sample else '(not found)'}")
 
     # 6. RUNTIME GATE — the real "does V6 work" check: after migrating the
     # founder's data, the PTG provider must initialise on the populated DB,
     # RECALL migrated memos (prefetch), and CAPTURE a new turn (sync_turn).
-    # Distribution-independent (tests the agent data layer, not the packaging).
     print("\n[6/6] Runtime gate (PTGProvider on the migrated DB):")
     provider = PTGProvider(config={
         "db_path": str(db),
@@ -187,24 +199,41 @@ def main(argv=None) -> int:
     })
     provider.initialize("runtime-gate", agent_context="primary")
     rt_ok = provider._store is not None
-    recall = provider.prefetch("北京")
-    rt_recall = "北京" in recall and "今天晚上" in recall
-    provider.sync_turn("运行时冒烟：再记一条关于北京出差的备忘", "好的，已记下。")
-    recall2 = provider.prefetch("北京")
-    rt_capture = "运行时冒烟" in recall2
     blk = provider.system_prompt_block()
     rt_status = "captured memo" in blk
+    if args.counts_only:
+        # Dump-agnostic, PII-safe: derive the recall key from an actual migrated
+        # memo (never printed) so the prefetch check runs on ANY real dump; the
+        # capture key is self-injected (not real data). Booleans + lengths only.
+        any_memo = conn.execute("SELECT source_text FROM memos LIMIT 1").fetchone()
+        recall_key = (any_memo["source_text"][:2]
+                      if any_memo and any_memo["source_text"] else "数据")
+        pre = provider.prefetch(recall_key)
+        rt_recall = len(pre) > 0
+        provider.sync_turn("运行时冒烟：验证捕获一条新备忘", "好的，已记下。")
+        post = provider.prefetch("运行时冒烟")
+        rt_capture = len(post) > 0
+        print(f"      provider initialised: {'✓' if rt_ok else '❌'}")
+        print(f"      prefetch recalls migrated data (len>0): {'✓' if rt_recall else '❌'}")
+        print(f"      sync_turn captures new memo (recallable): {'✓' if rt_capture else '❌'}")
+        print(f"      system_prompt_block reports status: {'✓' if rt_status else '❌'}")
+    else:
+        recall = provider.prefetch("北京")
+        rt_recall = "北京" in recall and "今天晚上" in recall
+        provider.sync_turn("运行时冒烟：再记一条关于北京出差的备忘", "好的，已记下。")
+        recall2 = provider.prefetch("北京")
+        rt_capture = "运行时冒烟" in recall2
+        print(f"      provider initialised: {'✓' if rt_ok else '❌'}")
+        print(f"      prefetch('北京') recalls migrated memo: {'✓' if rt_recall else '❌'}"
+              f"\n        → {recall.splitlines()[-1][:50] if recall else '(empty)'}")
+        print(f"      sync_turn captures new memo + recallable: {'✓' if rt_capture else '❌'}")
+        print(f"      system_prompt_block reports status: {'✓' if rt_status else '❌'}")
     provider.shutdown()
-    print(f"      provider initialised: {'✓' if rt_ok else '❌'}")
-    print(f"      prefetch('北京') recalls migrated memo: {'✓' if rt_recall else '❌'}"
-          f"\n        → {recall.splitlines()[-1][:50] if recall else '(empty)'}")
-    print(f"      sync_turn captures new memo + recallable: {'✓' if rt_capture else '❌'}")
-    print(f"      system_prompt_block reports status: {'✓' if rt_status else '❌'}")
     if not (rt_ok and rt_recall and rt_capture and rt_status):
         fail = True
 
     store.close()
-    print(f"\nVERDICT: {'✅ PASS — importer accepted all real data, 0 skip/0 error' if not fail else '❌ FAIL — see skipped/errors above'}")
+    print(f"\nVERDICT: {'✅ PASS — importer accepted all real data (0 pk_conflict / 0 violation / 0 error)' if not fail else '❌ FAIL — see pk_conflict/violation/errors above'}")
     print(f"(throwaway db left at {db} for inspection; delete anytime.)")
     return 0 if not fail else 1
 

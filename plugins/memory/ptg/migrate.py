@@ -204,21 +204,79 @@ IMPORT_ORDER: List[str] = [
 ]
 
 
-def _bulk_insert_ignore(store: PTGStore, table: str, rows: List[Dict[str, Any]]) -> int:
-    """INSERT OR IGNORE a batch; return the number of rows actually added
-    (after-before), so PK-conflict skips are correctly excluded from stats."""
+def _bulk_insert_classified(
+    store: PTGStore, table: str, rows: List[Dict[str, Any]]
+) -> Dict[str, int]:
+    """INSERT OR IGNORE a batch, classifying every skip as one of:
+
+      * ``pk_conflict`` — idempotent re-import (PK already present); legitimate,
+        expected on re-runs.
+      * ``violation``   — NOT a PK conflict, yet still did not insert → a schema-
+        constraint violation (NOT NULL / CHECK). Each is routed to the DLQ so
+        user data is never silently lost (C7).
+
+    Returns ``{written, pk_conflict, violation}``.
+
+    Classification reconciles the batch against pre-existing PKs: a non-conflict
+    row that fails to insert MUST be a constraint violation (the only other cause
+    INSERT OR IGNORE skips on). After the bulk insert we re-query which suspect
+    IDs are now present; the absent ones are the violators and get DLQ'd. The
+    happy path (no violations) does no row-by-row work — one extra SELECT to
+    reconcile. Previously ``_bulk_insert_ignore`` returned a bare count and the
+    caller derived ``skipped = read - written - errors``, conflating idempotent
+    PK-conflicts with silent constraint-violation data loss (C7 gap).
+    """
+    stats = {"written": 0, "pk_conflict": 0, "violation": 0}
     if not rows:
-        return 0
+        return stats
     cols = list(rows[0].keys())
     placeholders = ", ".join("?" for _ in cols)
     sql = (f"INSERT OR IGNORE INTO {table} ({', '.join(cols)}) "
            f"VALUES ({placeholders})")
     payload = [tuple(r[c] for c in cols) for r in rows]
     with store._lock:
+        # Pre-existing PKs (legit idempotent conflicts). All 13 tables key on `id`.
+        existing: set = set()
+        suspect_ids: List[Any] = []
+        if "id" in cols:
+            ids = [r["id"] for r in rows]
+            ph = ",".join("?" for _ in ids)
+            existing = {row[0] for row in store._conn.execute(
+                f"SELECT id FROM {table} WHERE id IN ({ph})", ids).fetchall()}
+            suspect_ids = [i for i in ids if i not in existing]
         before = store._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         store._conn.executemany(sql, payload)
         after = store._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-    return after - before
+        # Reconcile: which suspect IDs are now present? Absent ones = violations.
+        newly_present: set = set()
+        if suspect_ids:
+            ph2 = ",".join("?" for _ in suspect_ids)
+            newly_present = {row[0] for row in store._conn.execute(
+                f"SELECT id FROM {table} WHERE id IN ({ph2})", suspect_ids).fetchall()}
+    stats["written"] = after - before
+    stats["pk_conflict"] = len(existing)
+    violator_ids = [i for i in suspect_ids if i not in newly_present]
+    stats["violation"] = len(violator_ids)
+    if not violator_ids:
+        return stats
+    # DLQ the exact offending rows (C7 — never silently drop user data).
+    vmap = {r["id"]: r for r in rows} if "id" in cols else {}
+    for vid in violator_ids:
+        r = vmap.get(vid)
+        if r is None:
+            continue
+        try:
+            store.insert_dlq(
+                user_id=str(r.get("user_id") or "founder"),
+                source=f"v5_migrate:{table}",
+                error_type="constraint_violation",
+                error_msg=(f"{table} id={vid} skipped by INSERT OR IGNORE "
+                           f"(NOT NULL / CHECK violation) — not a PK conflict."),
+                original_data={"table": table, "row": dict(r)},
+            )
+        except Exception:  # noqa: BLE001 — never let a DLQ failure hide the violation
+            logger.error("migrate %s: could not DLQ violating row %s", table, vid)
+    return stats
 
 
 def import_table(
@@ -238,7 +296,7 @@ def import_table(
     target = TABLE_TARGET.get(table, table)
     colmap = COLUMN_MAPS[table]
     path = Path(jsonl_path)
-    stats = {"read": 0, "written": 0, "skipped": 0, "errors": 0}
+    stats = {"read": 0, "written": 0, "pk_conflict": 0, "violation": 0, "errors": 0}
     if not path.exists():
         return stats
 
@@ -265,11 +323,16 @@ def import_table(
                     pass
                 continue
             if len(buf) >= batch:
-                stats["written"] += _bulk_insert_ignore(store, target, buf)
+                b = _bulk_insert_classified(store, target, buf)
+                stats["written"] += b["written"]
+                stats["pk_conflict"] += b["pk_conflict"]
+                stats["violation"] += b["violation"]
                 buf.clear()
     if buf:
-        stats["written"] += _bulk_insert_ignore(store, target, buf)
-    stats["skipped"] = stats["read"] - stats["written"] - stats["errors"]
+        b = _bulk_insert_classified(store, target, buf)
+        stats["written"] += b["written"]
+        stats["pk_conflict"] += b["pk_conflict"]
+        stats["violation"] += b["violation"]
     return stats
 
 
@@ -288,7 +351,7 @@ def import_dump(
     dump_dir = Path(dump_dir)
     order = tables or IMPORT_ORDER
     report: Dict[str, Any] = {"tables": {}, "totals": {"read": 0, "written": 0,
-                              "skipped": 0, "errors": 0}}
+                              "pk_conflict": 0, "violation": 0, "errors": 0}}
     for table in order:
         if table not in COLUMN_MAPS:
             logger.warning("migrate: unknown table %s skipped", table)
@@ -298,9 +361,9 @@ def import_dump(
         for k in report["totals"]:
             report["totals"][k] += stats[k]
         if stats["read"]:
-            logger.info("migrate %-20s read=%d written=%d skipped=%d errors=%d",
-                        table, stats["read"], stats["written"], stats["skipped"],
-                        stats["errors"])
+            logger.info("migrate %-20s read=%d written=%d pk_conflict=%d violation=%d errors=%d",
+                        table, stats["read"], stats["written"], stats["pk_conflict"],
+                        stats["violation"], stats["errors"])
 
     audit_key = f"v5_migration_{_now_iso()}"
     try:

@@ -176,10 +176,22 @@ def convert_row(
     by V6 column), applying per-column converters and omitting dropped columns.
 
     ``column_map`` is a list of ``(v5_col, v6_col, converter_name)`` tuples.
-    Missing V5 keys → None (so an additive V6 column gets its default/NULL).
+
+    A V6 column whose V5 key is **absent** (the V5 schema simply lacks that
+    column — e.g. V6-added ``ser_source`` / ``voiceprint_confidence``) is OMITTED
+    from the output, so the INSERT does not name it and SQLite applies the V6
+    column DEFAULT (``ser_source DEFAULT 'llm_text'``). Materializing it as
+    explicit ``None`` instead would store NULL and *defeat* the DEFAULT, tripping
+    the ``NOT NULL`` — a real-data bug the synthetic fixtures (which always set
+    the value) hid (ADR-088 lesson).
+
+    A V5 key that is **present but NULL** is still emitted as NULL — correct for
+    genuinely nullable columns where individual rows are null.
     """
     out: dict = {}
     for v5_col, v6_col, conv_name in column_map:
+        if v5_col not in v5_row:
+            continue  # V5 schema lacks this column → omit; V6 DEFAULT / NULL applies
         converter = CONVERTERS[conv_name]
         val = converter(v5_row.get(v5_col))
         if val is _OMIT:
