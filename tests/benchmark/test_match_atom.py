@@ -85,3 +85,59 @@ def test_cross_type_never_matches():
         {"type": "R3_Person", "person_name": "妈妈"},
         {"type": "R2_Task", "task_description": "妈妈"},
     )
+
+
+# ── Phase 1b atoms (ADR-V6-016): R8_Cognition / R9_Emotion / R12_Outcome ──
+
+def test_r8_topic_overlap_matches():
+    assert match_atom(
+        {"type": "R8_Cognition", "topic": "React 的 diff 算法"},
+        {"type": "R8_Cognition", "topic": "React diff 算法"},
+    )
+
+
+def test_r8_topic_disjoint_does_not_match():
+    assert not match_atom(
+        {"type": "R8_Cognition", "topic": "k8s 调度"},
+        {"type": "R8_Cognition", "topic": "复式记账"},
+    )
+
+
+def test_r9_valence_polarity_matches():
+    # 开心 vs 高兴 — same polarity (positive) matches; label vocab isn't standardized.
+    assert match_atom(
+        {"type": "R9_Emotion", "emotion_label": "开心", "valence": "positive"},
+        {"type": "R9_Emotion", "emotion_label": "高兴", "valence": "positive"},
+    )
+
+
+def test_r9_valence_mismatch_does_not_match():
+    assert not match_atom(
+        {"type": "R9_Emotion", "emotion_label": "开心", "valence": "positive"},
+        {"type": "R9_Emotion", "emotion_label": "愤怒", "valence": "negative"},
+    )
+
+
+def test_r12_outcome_and_task_match():
+    assert match_atom(
+        {"type": "R12_Outcome", "task_ref": "季度述职报告", "outcome": "completed"},
+        {"type": "R12_Outcome", "task_ref": "述职报告", "outcome": "completed"},
+    )
+
+
+def test_r12_wrong_outcome_does_not_match():
+    assert not match_atom(
+        {"type": "R12_Outcome", "task_ref": "述职报告", "outcome": "completed"},
+        {"type": "R12_Outcome", "task_ref": "述职报告", "outcome": "failed"},
+    )
+
+
+def test_new_atoms_cross_type_never_match():
+    assert not match_atom(
+        {"type": "R8_Cognition", "topic": "述职报告"},
+        {"type": "R12_Outcome", "task_ref": "述职报告", "outcome": "completed"},
+    )
+    assert not match_atom(
+        {"type": "R9_Emotion", "valence": "positive"},
+        {"type": "R1_SelfState", "state_type": "mood", "direction": "up"},
+    )

@@ -54,6 +54,17 @@ def _person_names_match(pred_name: str, exp_name: str, pred_aliases, exp_aliases
     return False
 
 
+def _text_overlap(pred: str, exp: str, *, threshold: float = 0.4) -> bool:
+    """Chinese char-overlap (no word boundaries). Used by the Phase 1b atom
+    matchers (R8 topic, R12 task_ref) — same logic R2_Task inlines below."""
+    p = re.sub(r'[，。、！？\s,\.!?]', '', (pred or "").lower())
+    e = re.sub(r'[，。、！？\s,\.!?]', '', (exp or "").lower())
+    if not e:
+        return False
+    common = sum(1 for c in e if c in p)
+    return common / len(e) >= threshold
+
+
 def match_atom(predicted: dict, expected: dict) -> bool:
     """Check if a predicted atom matches an expected atom (type-aware)."""
     if predicted.get("type") != expected.get("type"):
@@ -109,5 +120,27 @@ def match_atom(predicted: dict, expected: dict) -> bool:
             frozenset({"Need_To_Do", "Help"}),
         }
         return frozenset({pred_class, exp_class}) in _R7_EQUIVALENT
+
+    # ── Phase 1b atoms (ADR-V6-016) ──────────────────────────────────────
+    # R8_Cognition: topic is text → char-overlap ≥ 0.4 (same philosophy as
+    # R2_Task; knowledge_tags phrasing varies, so topic is load-bearing).
+    elif atom_type == "R8_Cognition":
+        return _text_overlap(predicted.get("topic", ""),
+                             expected.get("topic", ""))
+
+    # R9_Emotion: the emotion POLARITY (valence) is the load-bearing semantic —
+    # two extracts that both read the same input as positive match even if the
+    # surface label differs (开心 vs 高兴). Phase 1b label vocab isn't standardized.
+    elif atom_type == "R9_Emotion":
+        return predicted.get("valence") == expected.get("valence") \
+            and bool(predicted.get("valence"))
+
+    # R12_Outcome: outcome enum is small + exact-matchable; task_ref is text →
+    # char-overlap ≥ 0.4 (a 'completed 述职报告' matches 'completed 季度述职').
+    elif atom_type == "R12_Outcome":
+        if predicted.get("outcome") != expected.get("outcome"):
+            return False
+        return _text_overlap(predicted.get("task_ref", ""),
+                             expected.get("task_ref", ""))
 
     return False

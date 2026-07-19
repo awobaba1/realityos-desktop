@@ -38,10 +38,25 @@ _SAMPLES_FILE = _BENCHMARK_DIR / "samples_v0.jsonl"
 # Dev fallback: read creds from the V5 backend .env (never shipped, never printed).
 _V5_ENV = Path("/Users/wugang/danao13/backend/.env")
 
+# Atom types the benchmark breaks out per-type (recall-gated). Phase 1a gated
+# R3/R2/R1/R7; Phase 1b (ADR-V6-016) adds R8/R9/R12 — brand-new atom types, so
+# their recall targets sit at the softest tier (R7's 0.60): "must surface most
+# occurrences of a new atom type." R0_Entity stays ungated (entity recall depends
+# on the vocab-injection path, evaluated separately). Precision is REPORTED but
+# never gated (the precision⑦ ceiling — commit 7758542e0 — is structural, tuned
+# in Phase 1b-2 via relabel/dedup, not by holding a gate hostage).
+_EVAL_TYPES = ["R3_Person", "R2_Task", "R1_SelfState", "R7_Expression",
+               "R8_Cognition", "R9_Emotion", "R12_Outcome"]
+_GATE_TARGETS = {"R3_Person": 0.85, "R2_Task": 0.80, "R1_SelfState": 0.70,
+                 "R7_Expression": 0.60,
+                 "R8_Cognition": 0.60, "R9_Emotion": 0.60, "R12_Outcome": 0.60}
 
-def load_samples(limit: Optional[int] = None) -> list[dict]:
+
+def load_samples(limit: Optional[int] = None,
+                 samples_file: Optional[Path] = None) -> list[dict]:
+    src = samples_file or _SAMPLES_FILE
     samples = []
-    with open(_SAMPLES_FILE, encoding="utf-8") as f:
+    with open(src, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -139,7 +154,7 @@ def evaluate_sample(predicted_atoms: list[dict], expected: dict) -> dict:
     fn_atoms = [exp_atoms[i] for i in range(len(exp_atoms)) if i not in matched_expected]
 
     type_stats: dict[str, dict] = {}
-    for atom_type in ["R3_Person", "R2_Task", "R1_SelfState", "R7_Expression"]:
+    for atom_type in _EVAL_TYPES:
         type_exp = [a for a in exp_atoms if a.get("type") == atom_type]
         type_pred = [a for a in pred_atoms if a.get("type") == atom_type]
         matched: set[int] = set()
@@ -159,11 +174,13 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
                    limit: Optional[int], workers: int, out: Optional[str],
                    dump_fp: Optional[str] = None,
                    ptg_db: Optional[str] = None,
-                   user_id: str = "founder") -> dict:
+                   user_id: str = "founder",
+                   samples_file: Optional[str] = None) -> dict:
     from plugins.memory.ptg.atomizer import Atomizer
     from plugins.memory.ptg.store import PTGStore
 
-    samples = load_samples(limit)
+    sf = Path(samples_file) if samples_file else None
+    samples = load_samples(limit, samples_file=sf)
     tmpdir = tempfile.mkdtemp(prefix="ptg_eval_")
     store = PTGStore(db_path=str(Path(tmpdir) / "eval.db"))
     store.ensure_founder("eval-user", "eval@realityos.local")
@@ -176,7 +193,7 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
 
     print(f"\n{'='*64}\nRealityOS V6 HL-12 Extraction Benchmark (post-gate, end-to-end)\n{'='*64}", flush=True)
     print(f"Samples: {len(samples)} | Model: {model} | Workers: {workers}", flush=True)
-    print(f"Pipeline: Atomizer (v11 prompt + C5 gate + write + graph materialize)\n{'='*64}\n", flush=True)
+    print(f"Pipeline: Atomizer (v12 prompt + C5 gate + write + graph materialize)\n{'='*64}\n", flush=True)
 
     fpfn_records: list[dict] = []  # for --dump-fp root-cause diagnosis
 
@@ -210,7 +227,7 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
 
     total = {"tp": 0, "fp": 0, "fn": 0, "errors": 0,
              "type_stats": {t: {"expected": 0, "predicted": 0, "matched": 0}
-                            for t in ["R3_Person", "R2_Task", "R1_SelfState", "R7_Expression"]}}
+                            for t in _EVAL_TYPES}}
     for i, item in enumerate(results):
         sid, res, err, _input = item
         if err or res is None:
@@ -236,7 +253,7 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
     print(f"Overall: TP={tp} FP={fp} FN={fn}")
     print(f"  Precision: {precision:.1%}\n  Recall:    {recall:.1%}\n  F1:        {f1:.1%}\n")
 
-    targets = {"R3_Person": 0.85, "R2_Task": 0.80, "R1_SelfState": 0.70, "R7_Expression": 0.60}
+    targets = _GATE_TARGETS
     print(f"{'Type':<15}{'Exp':>7}{'Pred':>7}{'Match':>7}{'Prec':>9}{'Recall':>9}  gate")
     print("-" * 64)
     gates = {}
@@ -329,6 +346,9 @@ def _record_report_to_quality_metrics(report: dict, ptg_db: str,
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Run the V6 HL-12 extraction benchmark")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--samples", type=str, default=None,
+                    help="Path to a samples .jsonl (default: tests/benchmark/samples_v0.jsonl). "
+                         "Phase 1b (ADR-V6-016): point at samples_phase1b.jsonl to eval R8/R9/R12.")
     ap.add_argument("--api-key", type=str, default=None)
     ap.add_argument("--base-url", type=str, default=None)
     ap.add_argument("--model", type=str, default="deepseek-chat")
@@ -347,4 +367,5 @@ if __name__ == "__main__":
     key, base = _resolve_creds(args.api_key, args.base_url)
     run_evaluation(api_key=key, base_url=base, model=args.model, provider=args.provider,
                    limit=args.limit, workers=args.workers, out=args.out,
-                   dump_fp=args.dump_fp, ptg_db=args.ptg_db, user_id=args.ptg_user_id)
+                   dump_fp=args.dump_fp, ptg_db=args.ptg_db, user_id=args.ptg_user_id,
+                   samples_file=args.samples)

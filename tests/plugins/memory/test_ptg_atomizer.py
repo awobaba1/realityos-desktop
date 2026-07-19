@@ -42,9 +42,25 @@ def _resp(content_obj, *, model="glm-5.2", in_t=120, out_t=60):
     )
 
 
-def _callerReturning(response):
+def _callerReturning(response, supplement=None):
+    """Pass-aware mock for two-pass extraction (ADR-V6-016).
+
+    Returns ``response`` for the v11 primary pass (R0-R7) and ``supplement``
+    (default: an empty-atom response) for the v12 supplement pass (R8/R9/R12).
+    Detection: the v12 system prompt contains 'R8_Cognition' (v11 does not).
+    Tests that don't care about R8/R9/R12 get unchanged primary-pass behaviour;
+    tests that do pass an explicit ``supplement`` payload.
+    """
+    supp = supplement if supplement is not None else {
+        "summary": "无补充原子", "atoms": []}
+    supp_resp = _resp(supp)
+
     def _call(**kwargs):
-        return response
+        sys_msg = ""
+        msgs = kwargs.get("messages") or []
+        if msgs and isinstance(msgs[0], dict):
+            sys_msg = msgs[0].get("content", "") or ""
+        return supp_resp if "R8_Cognition" in sys_msg else response
     return _call
 
 
@@ -117,14 +133,19 @@ def test_happy_path_writes_all_atoms_to_correct_tables(store):
     assert store.count_rows("meaning_events") == 2    # R2 + R7
     assert store.count_rows("feeling_events") == 1    # R1
     assert store.count_rows("entity_events") == 1     # R0
-    # C6: exactly one successful, schema-valid log row.
-    assert store.count_rows("llm_call_logs") == 1
-    log = _row(store, "llm_call_logs")
-    assert log["success"] == 1
-    assert log["schema_valid"] == 1          # V6 fills it (V5 left NULL)
-    assert log["prompt_template_version"] == "v11"
-    assert log["model"] == "glm-5.2"
-    assert log["cost_cny"] and log["cost_cny"] > 0
+    # C6: two passes → two log rows (v11 primary + v12 supplement), both
+    # successful and schema-valid.
+    assert store.count_rows("llm_call_logs") == 2
+    logs = [dict(r) for r in store._conn.execute(
+        "SELECT prompt_template_version, success, schema_valid, model, cost_cny "
+        "FROM llm_call_logs")]
+    versions = {lg["prompt_template_version"] for lg in logs}
+    assert versions == {"v11", "v12"}        # primary + supplement
+    assert all(lg["success"] == 1 for lg in logs)
+    assert all(lg["schema_valid"] == 1 for lg in logs)   # V6 fills it (V5 left NULL)
+    v11 = next(lg for lg in logs if lg["prompt_template_version"] == "v11")
+    assert v11["model"] == "glm-5.2"
+    assert v11["cost_cny"] and v11["cost_cny"] > 0
     # C7: nothing dropped.
     assert store.count_rows("dlq_messages") == 0
 
@@ -256,14 +277,17 @@ def test_llm_call_failure_dlq_and_log(store):
     az = _atomizer(store, _callerRaising(RuntimeError("No LLM provider configured")))
     az.atomize(memo_id=_memo(store), source_text="x")
 
-    assert store.count_rows("dlq_messages") == 1
+    # Two passes both fail → 2 DLQ + 2 failed log rows (fail-isolated per pass).
+    assert store.count_rows("dlq_messages") == 2
     dlq = _row(store, "dlq_messages")
     assert dlq["source"] == "llm_extract"
     assert dlq["error_type"] == "llm_error"          # V5 DLQ taxonomy
     assert "No LLM provider" in dlq["error_msg"]
-    log = _row(store, "llm_call_logs")
-    assert log["success"] == 0
-    assert log["error_type"] == "RuntimeError"        # log carries the exc class (V5)
+    logs = [dict(r) for r in store._conn.execute(
+        "SELECT success, error_type FROM llm_call_logs")]
+    assert len(logs) == 2
+    assert all(lg["success"] == 0 for lg in logs)
+    assert all(lg["error_type"] == "RuntimeError" for lg in logs)  # exc class (V5)
 
 
 def test_json_parse_failure_dlq(store):
@@ -310,10 +334,11 @@ class sqlite_fail(Exception):
 def test_llm_log_captures_full_prompt_and_response(store):
     az = _atomizer(store, _callerReturning(_resp(_VALID_OUTPUT)))
     az.atomize(memo_id=_memo(store), source_text="原始用户文本")
+    # _row returns the first-inserted log = the v11 primary pass.
     log = _row(store, "llm_call_logs")
     prompt_input = json.loads(log["prompt_input"])
     assert prompt_input["engine"] == "hl12_extract"
-    assert prompt_input["prompt_version"] == "v11"
+    assert prompt_input["prompt_version"] == "v11"        # primary pass baseline
     assert "原始用户文本" in prompt_input["full_prompt"]      # C6 replay
     assert prompt_input["system_prompt_hash"]
     response = json.loads(log["response"])
@@ -421,7 +446,7 @@ def test_sync_turn_end_to_end_writes_atoms_via_mock_llm(tmp_path):
     assert p._store.count_rows("memos") == 1
     assert p._store.count_rows("identity_events") == 1
     assert p._store.count_rows("meaning_events") == 2
-    assert p._store.count_rows("llm_call_logs") == 1
+    assert p._store.count_rows("llm_call_logs") == 2   # v11 primary + v12 supplement
     p.shutdown()
 
 

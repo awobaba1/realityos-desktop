@@ -42,8 +42,20 @@ from .store import PTGStore
 
 logger = logging.getLogger(__name__)
 
+# Two-pass extraction (ADR-V6-016). Single-pass 8-atom extraction regressed R3
+# recall below the 85% Phase Gate on the 200-sample baseline (attention dilution:
+# v12-singlepass R3=81-82% vs v11 ≥85%). So pass 1 runs v11 VERBATIM (R0/R1/R2/
+# R3/R7 — baseline preserved byte-for-byte, C6), and pass 2 runs v12 as a focused
+# R8/R9/R12 supplement (no attention competition). PROMPT_VERSION (the value
+# logged as prompt_template_version on the primary pass) stays the v11 baseline.
 PROMPT_VERSION = "v11"
-_PROMPT_FILE = Path(__file__).parent / "prompts" / f"hl12_extract_{PROMPT_VERSION}.md"
+_PRIMARY_VERSION = "v11"       # pass 1: R0/R1/R2/R3/R7 (V5 baseline, untouched)
+_SUPPLEMENT_VERSION = "v12"    # pass 2: R8/R9/R12 (Phase 1b supplement)
+_PROMPT_FILE = Path(__file__).parent / "prompts"
+_PROMPT_FILES = {
+    _PRIMARY_VERSION: _PROMPT_FILE / f"hl12_extract_{_PRIMARY_VERSION}.md",
+    _SUPPLEMENT_VERSION: _PROMPT_FILE / f"hl12_extract_{_SUPPLEMENT_VERSION}.md",
+}
 _JSON_SUFFIX = "\n\n请从以上用户输入中提取所有 Atom，输出严格 JSON 格式。"
 
 # V5 llm_service.py:300-313 pricing (CNY per million tokens). Unknown provider
@@ -173,7 +185,7 @@ class Atomizer:
         self._now_fn = now_fn
         self._main_runtime = main_runtime
         self._timeout = timeout
-        self._system_prompt: Optional[str] = None
+        self._system_prompts: dict[str, str] = {}  # version → cached system text
         # Graph materialization (ADR-V6-011 决策6): turn R0/R3/R2 atoms into
         # entities/relations nodes+edges. Default ON (same heart-must-beat spirit
         # as atomize); fail-isolated so a graph error never breaks event capture.
@@ -183,10 +195,11 @@ class Atomizer:
 
     # -- prompt -----------------------------------------------------------
 
-    def _system(self) -> str:
-        if self._system_prompt is None:
-            self._system_prompt = _PROMPT_FILE.read_text(encoding="utf-8")
-        return self._system_prompt
+    def _system(self, version: str) -> str:
+        """Load (and cache) the system prompt for a pass version (v11/v12)."""
+        if version not in self._system_prompts:
+            self._system_prompts[version] = _PROMPT_FILES[version].read_text(encoding="utf-8")
+        return self._system_prompts[version]
 
     def _entity_vocab_section(self) -> Optional[str]:
         """Build the known-entity vocabulary section (ADR-V6-013). Returns None
@@ -215,26 +228,64 @@ class Atomizer:
         input_mode: str = "text",
         location_context: Optional[dict] = None,
     ) -> dict:
-        """Run the full extraction pipeline for one memo. Never raises (C7).
+        """Run the full two-pass extraction pipeline for one memo. Never raises (C7).
 
-        Returns a counts dict (for diagnostics/logging): written / filtered /
-        invalid / llm_call_id / latency_ms. All failures are logged + DLQ'd.
+        Pass 1 (v11, primary): R0/R1/R2/R3/R7 — the V5 baseline, run verbatim so
+        its 85%+ R3 recall is preserved (single-pass 8-atom extraction regressed
+        it, ADR-V6-016). Pass 2 (v12, supplement): R8/R9/R12 only. Each pass is
+        fail-isolated (one pass erroring never blocks the other). Returns a
+        counts dict: written / filtered / invalid / llm_call_ids / latency_ms.
         """
-        counts = {"written": 0, "filtered": 0, "invalid": 0,
-                  "llm_call_id": None, "latency_ms": 0, "ok": False}
+        start = time.monotonic()
+        # ADR-V6-013: build the known-entity vocab once (None on first run / load
+        # failure → extraction proceeds vocab-less, never blocked).
+        entity_vocab = self._entity_vocab_section()
+
+        pass1 = self._extract_and_write_pass(
+            _PRIMARY_VERSION, memo_id=memo_id, source_text=source_text,
+            input_mode=input_mode, location_context=location_context,
+            entity_vocab=entity_vocab)
+        pass2 = self._extract_and_write_pass(
+            _SUPPLEMENT_VERSION, memo_id=memo_id, source_text=source_text,
+            input_mode=input_mode, location_context=location_context,
+            entity_vocab=entity_vocab)
+
+        latency = int((time.monotonic() - start) * 1000)
+        return {
+            "ok": pass1["ok"] or pass2["ok"],
+            "written": pass1["written"] + pass2["written"],
+            "filtered": pass1["filtered"] + pass2["filtered"],
+            "invalid": pass1["invalid"] + pass2["invalid"],
+            # primary pass's id first (the baseline pass), supplement second.
+            "llm_call_id": pass1["llm_call_id"],
+            "llm_call_ids": [pass1["llm_call_id"], pass2["llm_call_id"]],
+            "latency_ms": latency,
+        }
+
+    def _extract_and_write_pass(
+        self, version: str, *, memo_id: str, source_text: str,
+        input_mode: str, location_context: Optional[dict],
+        entity_vocab: Optional[str],
+    ) -> dict:
+        """Run ONE extraction pass (LLM call → parse → C5 gate → write → graph).
+
+        Fail-isolated and never raises (C7): every failure path logs + DLQs and
+        returns ``{ok: False, written: 0, ...}``. Written atoms carry this pass's
+        llm_call_id (C6 traceability per call). Used for both the v11 primary
+        pass and the v12 supplement pass.
+        """
+        out = {"ok": False, "written": 0, "filtered": 0, "invalid": 0,
+               "llm_call_id": None}
         llm_call_id = str(uuid.uuid4())
-        counts["llm_call_id"] = llm_call_id
+        out["llm_call_id"] = llm_call_id
         start = time.monotonic()
 
-        system_prompt = self._system()
-        # ADR-V6-013: build the known-entity vocabulary section (None on first
-        # run / load failure → extraction proceeds vocab-less, never blocked).
-        entity_vocab = self._entity_vocab_section()
+        system_prompt = self._system(version)
         user_prompt = _format_user_prompt(
             source_text, self._now_fn(), location_context, entity_vocab)
         prompt_input = {
             "engine": "hl12_extract",
-            "prompt_version": PROMPT_VERSION,
+            "prompt_version": version,
             "text_length": len(source_text),
             "system_prompt_hash": _sha_short(system_prompt),
             "full_prompt": user_prompt,
@@ -256,7 +307,6 @@ class Atomizer:
             )
         except Exception as exc:  # noqa: BLE001 — fail-open, C7
             latency = int((time.monotonic() - start) * 1000)
-            counts["latency_ms"] = latency
             self._log_call(
                 llm_call_id, prompt_input, response=None, model="unknown",
                 provider=None, in_toks=0, out_toks=0, latency_ms=latency,
@@ -265,10 +315,12 @@ class Atomizer:
             self._store.insert_dlq(
                 user_id=self._user_id, source="llm_extract",
                 error_type="llm_error", error_msg=str(exc),
-                original_data={"memo_id": memo_id, "source_text": source_text},
+                original_data={"memo_id": memo_id, "pass": version,
+                               "source_text": source_text},
             )
-            logger.warning("Atomizer LLM call failed for memo %s: %s", memo_id, exc)
-            return counts
+            logger.warning("Atomizer LLM call failed (pass %s, memo %s): %s",
+                           version, memo_id, exc)
+            return out
 
         text = (response.choices[0].message.content or "").strip()
         model = getattr(response, "model", "unknown") or "unknown"
@@ -277,7 +329,6 @@ class Atomizer:
         in_toks = _usage_tokens(usage, "prompt_tokens")
         out_toks = _usage_tokens(usage, "completion_tokens")
         latency = int((time.monotonic() - start) * 1000)
-        counts["latency_ms"] = latency
 
         # Step 2 — JSON parse.
         try:
@@ -292,16 +343,19 @@ class Atomizer:
             self._store.insert_dlq(
                 user_id=self._user_id, source="llm_extract",
                 error_type="json_parse_error", error_msg=str(exc),
-                original_data={"memo_id": memo_id, "raw_response": text},
+                original_data={"memo_id": memo_id, "pass": version,
+                               "raw_response": text},
             )
-            logger.warning("Atomizer JSON parse failed for memo %s: %s", memo_id, exc)
-            return counts
+            logger.warning("Atomizer JSON parse failed (pass %s, memo %s): %s",
+                           version, memo_id, exc)
+            return out
 
         # Step 3 — C6 log the successful call (schema_valid filled after gate).
         self._log_call(
             llm_call_id, prompt_input, response={"content": parsed}, model=model,
             provider=provider, in_toks=in_toks, out_toks=out_toks,
-            latency_ms=latency, success=True, cost_cny=_estimate_cost(in_toks, out_toks, provider),
+            latency_ms=latency, success=True,
+            cost_cny=_estimate_cost(in_toks, out_toks, provider),
         )
 
         # Step 4 — C5 gate.
@@ -312,11 +366,12 @@ class Atomizer:
                 user_id=self._user_id, source="schema_validate",
                 error_type="schema_invalid",
                 error_msg="; ".join(validation.errors),
-                original_data={"memo_id": memo_id, "llm_output": parsed},
+                original_data={"memo_id": memo_id, "pass": version,
+                               "llm_output": parsed},
             )
-            logger.warning("Atomizer schema-invalid for memo %s: %s",
-                           memo_id, "; ".join(validation.errors))
-            return counts
+            logger.warning("Atomizer schema-invalid (pass %s, memo %s): %s",
+                           version, memo_id, "; ".join(validation.errors))
+            return out
         self._mark_schema_valid(llm_call_id, True)
 
         # Step 5 — dispatch valid atoms; DLQ filtered + invalid.
@@ -324,7 +379,7 @@ class Atomizer:
             try:
                 self._write_atom(atom, memo_id=memo_id, source_text=source_text,
                                  input_mode=input_mode, llm_call_id=llm_call_id)
-                counts["written"] += 1
+                out["written"] += 1
             except Exception as exc:  # noqa: BLE001 — per-atom isolation, C7
                 self._store.insert_dlq(
                     user_id=self._user_id, source="atom_write",
@@ -338,7 +393,7 @@ class Atomizer:
             if self._materialize_enabled:
                 try:
                     self._materialize_graph(atom, memo_id=memo_id)
-                except Exception as exc:  # noqa: BLE001 — enrichment isolated from capture
+                except Exception as exc:  # noqa: BLE001 — enrichment isolated
                     self._store.insert_dlq(
                         user_id=self._user_id, source="graph_materialize",
                         error_type="materialize_error",
@@ -355,7 +410,7 @@ class Atomizer:
                 error_msg=f_atom.get("_filter_reason", "below threshold"),
                 original_data={"memo_id": memo_id, "atom": f_atom},
             )
-            counts["filtered"] += 1
+            out["filtered"] += 1
 
         for inv in validation.invalid_atoms:
             self._store.insert_dlq(
@@ -364,10 +419,10 @@ class Atomizer:
                 error_msg=inv.get("error", "schema invalid"),
                 original_data={"memo_id": memo_id, "atom": inv.get("atom")},
             )
-            counts["invalid"] += 1
+            out["invalid"] += 1
 
-        counts["ok"] = True
-        return counts
+        out["ok"] = True
+        return out
 
     # -- writers ----------------------------------------------------------
 
@@ -375,6 +430,7 @@ class Atomizer:
                     input_mode: str, llm_call_id: str) -> None:
         from .atom_schemas import (
             R0EntityAtom, R1SelfStateAtom, R2TaskAtom, R3PersonAtom, R7ExpressionAtom,
+            R8CognitionAtom, R9EmotionAtom, R12OutcomeAtom,
         )
         common = dict(
             user_id=self._user_id, source_text=source_text,
@@ -386,37 +442,87 @@ class Atomizer:
                 person_name=atom.person_name, mention_context=atom.mention_context,
                 sentiment=atom.sentiment, interaction_type=atom.interaction_type, **common)
         elif isinstance(atom, R2TaskAtom):
+            # atom_kind='R2' is explicit (not the column default 'R7') so recall
+            # reconstruction dispatches on atom_kind, not intent_class alone.
             self._store.insert_meaning_event(
                 intent_class="Need_To_Do", task_description=atom.task_description,
-                urgency=atom.urgency, deadline=atom.deadline, task_status="pending", **common)
+                urgency=atom.urgency, deadline=atom.deadline, task_status="pending",
+                atom_kind="R2", **common)
         elif isinstance(atom, R7ExpressionAtom):
             self._store.insert_meaning_event(
-                intent_class=atom.intent_class, task_description=atom.content_summary, **common)
+                intent_class=atom.intent_class, task_description=atom.content_summary,
+                atom_kind="R7", **common)
+        elif isinstance(atom, R8CognitionAtom):
+            # R8 → meaning_events. intent_class enum has no 'learning' value, so
+            # 'Other' (atom_kind='R8' is the source of truth). topic→description,
+            # knowledge_tags→topic_tags (JSON). engagement/is_question land in
+            # completion_note for full-fidelity recall (no dedicated columns).
+            self._store.insert_meaning_event(
+                intent_class="Other", task_description=atom.topic,
+                topic_tags=json.dumps(atom.knowledge_tags, ensure_ascii=False),
+                completion_note=json.dumps(
+                    {"engagement": atom.engagement, "is_question": atom.is_question},
+                    ensure_ascii=False),
+                atom_kind="R8", **common)
+        elif isinstance(atom, R12OutcomeAtom):
+            # R12 → meaning_events, intent_class='Need_To_Do' (task outcome).
+            # outcome→task_status best-effort (completed→completed; failed→
+            # dismissed [closed, no enum for 'failed']; delayed→pending+overdue);
+            # the precise outcome + resolution_note survive in completion_note.
+            outcome_status = {"completed": "completed",
+                              "failed": "dismissed",
+                              "delayed": "pending"}[atom.outcome]
+            self._store.insert_meaning_event(
+                intent_class="Need_To_Do", task_description=atom.task_ref,
+                task_status=outcome_status, is_overdue=1 if atom.outcome == "delayed" else 0,
+                completion_note=json.dumps(
+                    {"outcome": atom.outcome, "resolution_note": atom.resolution_note},
+                    ensure_ascii=False),
+                atom_kind="R12", **common)
         elif isinstance(atom, R1SelfStateAtom):
             self._store.insert_feeling_event(
                 state_type=atom.state_type, direction=atom.direction,
                 intensity=atom.intensity, ser_source="llm_text", **common)
+        elif isinstance(atom, R9EmotionAtom):
+            # R9 → feeling_events, atom_kind='R9'. state_type must be one of the
+            # CHECK enum → 'mood'; direction mirrors valence. R9-specific fields
+            # (label/valence/arousal/trigger) land in emotion_vad + trigger_source
+            # (JSON) for full-fidelity recall; the CHECK-bound columns are the
+            # coarse projection.
+            r9_direction = {"positive": "up", "negative": "down",
+                            "neutral": "stable"}[atom.valence]
+            self._store.insert_feeling_event(
+                state_type="mood", direction=r9_direction, intensity=atom.intensity,
+                ser_source="llm_text",
+                emotion_vad=json.dumps(
+                    {"valence": atom.valence, "arousal": atom.arousal,
+                     "label": atom.emotion_label}, ensure_ascii=False),
+                trigger_source=json.dumps(
+                    {"trigger": atom.trigger, "atom": "R9_Emotion"},
+                    ensure_ascii=False),
+                atom_kind="R9", **common)
         elif isinstance(atom, R0EntityAtom):
             ctx = atom.mention_context or f"提及{atom.entity_category}: {atom.entity_name}"
             self._store.insert_entity_event(
                 entity_name=atom.entity_name, entity_category=atom.entity_category,
                 mention_context=ctx, **common)
-        else:  # pragma: no cover — gate only emits the 5 known types
+        else:  # pragma: no cover — gate only emits the 8 known types
             raise ValueError(f"unsupported atom type: {type(atom)!r}")
 
     # -- graph materialization (决策6) -----------------------------------
 
     def _materialize_graph(self, atom: Any, *, memo_id: str) -> None:
-        """Turn an R0/R3/R2 atom into a graph node + a self→node edge.
+        """Turn an R0/R3/R2/R8/R12 atom into a graph node + a self→node edge.
 
         The self entity (the founder — implicit subject of every personal memo)
         is upserted once and cached. Each eligible atom becomes one node and one
-        self→node semantic edge. R1/R7 carry no node in Phase 1a (states and
-        expressions are not entities). Failures here are isolated by the caller
-        (graph errors never break the event-table capture).
+        self→node semantic edge. R1/R7/R9 carry no node in Phase 1 (states,
+        expressions, and co-occurrence emotions are not entities). Failures here
+        are isolated by the caller (graph errors never break event-table capture).
         """
         from .atom_schemas import (
             R0EntityAtom, R2TaskAtom, R3PersonAtom,
+            R8CognitionAtom, R12OutcomeAtom,
         )
         if isinstance(atom, R3PersonAtom):
             ent_name, ent_type = atom.person_name, "person"
@@ -438,8 +544,26 @@ class Atomizer:
             ent_name, ent_type = atom.task_description, "task"
             edge_type, edge_val = "has_task", atom.urgency
             props = {"urgency": atom.urgency, "status": "pending"}
+        elif isinstance(atom, R8CognitionAtom):
+            # R8 cognition → topic node (a thing the founder is learning/thinking
+            # about), self→topic `learns` edge weighted by engagement.
+            ent_name, ent_type = atom.topic, "topic"
+            edge_type, edge_val = "learns", atom.engagement
+            props = {"engagement": atom.engagement,
+                     "is_question": atom.is_question}
+            if atom.knowledge_tags:
+                props["knowledge_tags"] = list(atom.knowledge_tags)
+        elif isinstance(atom, R12OutcomeAtom):
+            # R12 outcome → task node (upserted; may already exist from an R2 in
+            # an earlier memo), self→task `has_task` edge carrying the outcome so
+            # the task's latest resolution state is reflected in the graph.
+            ent_name, ent_type = atom.task_ref, "task"
+            edge_type, edge_val = "has_task", atom.outcome
+            props = {"outcome": atom.outcome}
+            if atom.resolution_note:
+                props["resolution_note"] = atom.resolution_note
         else:
-            return  # R1/R7 — no graph node in Phase 1a
+            return  # R1/R7/R9 — no graph node in Phase 1
         props = {k: v for k, v in props.items() if v is not None}
         self_id = self._ensure_self_entity()
         ent_id = self._store.upsert_entity(
@@ -468,10 +592,13 @@ class Atomizer:
                   schema_valid: Optional[bool] = None, cost_cny: Optional[float] = None,
                   error_type: Optional[str] = None, error_msg: Optional[str] = None) -> None:
         try:
+            # prompt_input carries this pass's prompt_version (v11 primary or v12
+            # supplement); log it verbatim for per-call traceability (C6).
+            pver = prompt_input.get("prompt_version", PROMPT_VERSION)
             self._store.insert_llm_call_log(
                 log_id=llm_call_id, user_id=self._user_id, model=model,
                 prompt_input=prompt_input, response=response, provider=provider,
-                prompt_template_version=PROMPT_VERSION, input_tokens=in_toks or None,
+                prompt_template_version=pver, input_tokens=in_toks or None,
                 output_tokens=out_toks or None, latency_ms=latency_ms, success=success,
                 schema_valid=schema_valid, cost_cny=cost_cny,
                 error_type=error_type, error_msg=error_msg,

@@ -82,14 +82,16 @@ def test_c2_append_only_logs_exempt(store):
 
 def test_meaning_events_holds_both_r2_and_r7(store):
     """meaning_events carries intent_class discriminating R2 (Need_To_Do) from
-    R7 (the other 7 intents) — the V5 split this table encodes."""
+    R7 (the other 7 intents) — the V5 split this table encodes. Phase 1b
+    (ADR-V6-016) adds atom_kind to mark the real atom behind each row."""
     store.insert_meaning_event(
         user_id="u1", source_text="buy milk", intent_class="Need_To_Do",
         confidence_base=0.9, relation_confidence=0.8, task_description="buy milk",
+        atom_kind="R2",
     )
     store.insert_meaning_event(
         user_id="u1", source_text="so tired", intent_class="Health",
-        confidence_base=0.7, relation_confidence=0.6,
+        confidence_base=0.7, relation_confidence=0.6, atom_kind="R7",
     )
     assert store.count_rows("meaning_events") == 2
     # CHECK constraint rejects a bogus intent_class.

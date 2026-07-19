@@ -54,6 +54,20 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _safe_json(s: Any, default: Any) -> Any:
+    """Defensive JSON parse for text columns that hold serialized atom payloads
+    (R8 completion_note / R9 emotion_vad+trigger_source). Returns ``default`` on
+    None / malformed input rather than raising — recall must never break on a
+    single bad row (C2: nothing lost, C7: no silent failure → the row still
+    surfaces with its coarse fields)."""
+    if not s:
+        return default
+    try:
+        return json.loads(s)
+    except (ValueError, TypeError):
+        return default
+
+
 def _normalize_entity_name(name: str) -> str:
     """Stable lookup key for an entity name.
 
@@ -595,7 +609,8 @@ class PTGStore:
             extra={"intent_class": intent_class, **{
                 k: kw[k] for k in
                 ("task_description", "urgency", "deadline", "task_status",
-                 "topic_tags", "completed_at", "completion_note", "is_overdue")
+                 "topic_tags", "completed_at", "completion_note", "is_overdue",
+                 "atom_kind")
                 if k in kw}},
             memo_id=kw.get("memo_id"), timestamp=kw.get("timestamp"),
             input_mode=kw.get("input_mode", "text"), llm_call_id=kw.get("llm_call_id"),
@@ -631,7 +646,7 @@ class PTGStore:
             confidence_base=confidence_base, relation_confidence=relation_confidence,
             extra={k: kw[k] for k in
                    ("state_type", "direction", "intensity", "emotion_vad",
-                    "ser_source", "trigger_source") if k in kw},
+                    "ser_source", "trigger_source", "atom_kind") if k in kw},
             memo_id=kw.get("memo_id"), timestamp=kw.get("timestamp"),
             input_mode=kw.get("input_mode", "text"), llm_call_id=kw.get("llm_call_id"),
         )
@@ -758,11 +773,12 @@ class PTGStore:
         """Reconstruct R-atoms from the four event tables — what actually landed.
 
         Returns atom-dicts shaped for ``match_atom`` (eval) and for rendering.
-        R3/R2/R7/R1/R0 all included. A meaning_event with intent_class=
-        'Need_To_Do' reconstructs as R2_Task; any other intent_class reconstructs
-        as R7_Expression (the Atomizer's write mapping, inverted). ``confidence``
-        prefers ``relation_confidence`` (the per-atom gate value) and falls back
-        to ``confidence_base``. Ordered timestamp DESC. Respects soft-delete.
+        Phase 1b (ADR-V6-016) reconstructs all eight atoms: R3/R2/R7/R1/R0
+        (Phase 1a) plus R8/R9/R12. meaning_events dispatch on the ``atom_kind``
+        column (R2/R7/R8/R12); feeling_events dispatch on atom_kind (R1/R9).
+        ``confidence`` prefers ``relation_confidence`` (the per-atom gate value)
+        and falls back to ``confidence_base``. Ordered timestamp DESC. Respects
+        soft-delete.
 
         ``memo_id`` narrows to one memo (the eval reconstructs per-sample).
         """
@@ -788,6 +804,7 @@ class PTGStore:
                 })
             for r in self._conn.execute(
                 f"""SELECT intent_class, task_description, urgency, deadline,
+                           topic_tags, completion_note, atom_kind,
                            confidence_base, relation_confidence, timestamp
                     FROM meaning_events
                     WHERE user_id = ? AND deleted_at IS NULL {memo_clause}
@@ -796,7 +813,30 @@ class PTGStore:
             ).fetchall():
                 conf = (r["relation_confidence"]
                         if r["relation_confidence"] is not None else r["confidence_base"])
-                if r["intent_class"] == "Need_To_Do":
+                kind = r["atom_kind"] or "R7"
+                if kind == "R8":
+                    cn = _safe_json(r["completion_note"], {})
+                    atoms.append({
+                        "type": "R8_Cognition", "topic": r["task_description"],
+                        "knowledge_tags": _safe_json(r["topic_tags"], []),
+                        "engagement": cn.get("engagement", "medium"),
+                        "is_question": bool(cn.get("is_question", False)),
+                        "confidence": conf, "_ts": r["timestamp"],
+                    })
+                elif kind == "R12":
+                    cn = _safe_json(r["completion_note"], {})
+                    atoms.append({
+                        "type": "R12_Outcome", "task_ref": r["task_description"],
+                        "outcome": cn.get("outcome", "completed"),
+                        "resolution_note": cn.get("resolution_note"),
+                        "confidence": conf, "_ts": r["timestamp"],
+                    })
+                elif kind == "R2":
+                    # R2_Task. Dispatch is purely on atom_kind (the source of
+                    # truth — the Atomizer writes atom_kind='R2' for every task).
+                    # intent_class is an R7 sub-classification only; a row that
+                    # happens to carry Need_To_Do + atom_kind='R7' is an R7
+                    # expression of intent, correctly reconstructed as R7 below.
                     atoms.append({
                         "type": "R2_Task", "task_description": r["task_description"],
                         "urgency": r["urgency"], "deadline": r["deadline"],
@@ -809,20 +849,38 @@ class PTGStore:
                         "confidence": conf, "_ts": r["timestamp"],
                     })
             for r in self._conn.execute(
-                f"""SELECT state_type, direction, intensity, confidence_base,
+                f"""SELECT state_type, direction, intensity, emotion_vad,
+                           trigger_source, atom_kind, confidence_base,
                            relation_confidence, timestamp
                     FROM feeling_events
                     WHERE user_id = ? AND deleted_at IS NULL {memo_clause}
                     ORDER BY timestamp DESC LIMIT ?""",
                 [user_id, *memo_params, limit],
             ).fetchall():
-                atoms.append({
-                    "type": "R1_SelfState", "state_type": r["state_type"],
-                    "direction": r["direction"], "intensity": r["intensity"],
-                    "confidence": (r["relation_confidence"]
-                                   if r["relation_confidence"] is not None else r["confidence_base"]),
-                    "_ts": r["timestamp"],
-                })
+                conf = (r["relation_confidence"]
+                        if r["relation_confidence"] is not None else r["confidence_base"])
+                if (r["atom_kind"] or "R1") == "R9":
+                    # R9_Emotion — the R9-specific fields were serialized into
+                    # emotion_vad (label/valence/arousal) + trigger_source at write
+                    # time; the CHECK-bound state_type/direction/intensity are the
+                    # coarse projection (state_type='mood', direction←valence).
+                    vad = _safe_json(r["emotion_vad"], {})
+                    trg = _safe_json(r["trigger_source"], {})
+                    atoms.append({
+                        "type": "R9_Emotion",
+                        "emotion_label": vad.get("label", "unknown"),
+                        "valence": vad.get("valence", "neutral"),
+                        "arousal": vad.get("arousal", "low"),
+                        "trigger": trg.get("trigger"),
+                        "intensity": r["intensity"],
+                        "confidence": conf, "_ts": r["timestamp"],
+                    })
+                else:
+                    atoms.append({
+                        "type": "R1_SelfState", "state_type": r["state_type"],
+                        "direction": r["direction"], "intensity": r["intensity"],
+                        "confidence": conf, "_ts": r["timestamp"],
+                    })
             for r in self._conn.execute(
                 f"""SELECT entity_name, entity_category, mention_context,
                            confidence_base, relation_confidence, timestamp

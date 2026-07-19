@@ -85,12 +85,73 @@ class R0EntityAtom(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
+class R8CognitionAtom(BaseModel):
+    """R8 Cognition — 认知/学习原子（Phase 1b，ADR-V6-016）。
+
+    delta（架构 §4.2）：knowledge_density / question_count /
+    learning_engagement / weakness_flag。Phase 1b 文字子集——knowledge_density
+    连续值无来源，用 ``knowledge_tags`` 离散标签 + ``engagement`` 近似；连续值
+    留 Phase 2 统计。
+    """
+
+    type: str = "R8_Cognition"
+    topic: str = Field(max_length=200, description="学习/思考主题（学到的知识、思考的问题）")
+    knowledge_tags: list[str] = Field(
+        default_factory=list, max_length=8,
+        description="知识点标签（如：React Hooks、k8s 调度、认知失调）")
+    engagement: str = Field(pattern="^(high|medium|low)$",
+                            description="投入程度：主动深究=high / 一般了解=medium / 顺带提及=low")
+    is_question: bool = Field(
+        default=False, description="是否是一个待解答的疑问（true）vs 已获得的知识（false）")
+    confidence: float = Field(ge=0, le=1)
+
+
+class R9EmotionAtom(BaseModel):
+    """R9 Emotion — 共现情绪原子（Phase 1b，ADR-V6-016）。
+
+    与 R1 自状态的差别：R1 是用户的「常态」压力/疲劳/精力；R9 是「在某个语境下
+    表现出的情绪波动」（带 trigger）。delta（架构 §4.2）：emotion_score /
+    shift_vs_baseline / valence / arousal / causal_confidence。Phase 1b 共现版——
+    causal_confidence 固定 0.65 + co_occurrence_only=true（架构 §4.3D L361），
+    valence/arousal 文字推断，声学连续值留 Phase 2.5。
+    """
+
+    type: str = "R9_Emotion"
+    emotion_label: str = Field(max_length=50, description="情绪标签（如：开心、焦虑、愤怒、感动）")
+    valence: str = Field(pattern="^(positive|negative|neutral)$",
+                         description="效价：正向/负向/中性")
+    arousal: str = Field(pattern="^(high|low)$",
+                         description="唤醒度：激烈=high / 平静=low")
+    trigger: str | None = Field(None, max_length=200, description="触发该情绪的具体因素/事件")
+    intensity: str = Field(pattern="^(high|medium|low)$", description="情绪强度")
+    confidence: float = Field(ge=0, le=1)
+
+
+class R12OutcomeAtom(BaseModel):
+    """R12 Outcome — 任务结果原子（Phase 1b，ADR-V6-016）。
+
+    delta（架构 §4.2）：completion_flag / failure_flag / delay_flag /
+    resolution_status，编码进 ``outcome`` + ``resolution_note``。来源：文字完成
+    语气（搞定了/没成/拖到下周）+ 工具执行结果（post_tool_call 闭环，后续子项接）。
+    """
+
+    type: str = "R12_Outcome"
+    task_ref: str = Field(max_length=200, description="关联的任务/待办描述")
+    outcome: str = Field(pattern="^(completed|failed|delayed)$",
+                         description="结果：完成 completed / 失败 failed / 延期 delayed")
+    resolution_note: str | None = Field(None, max_length=300, description="结果备注（如何完成/为何失败）")
+    confidence: float = Field(ge=0, le=1)
+
+
 # Union of all atom types
-AtomType = Union[R0EntityAtom, R3PersonAtom, R2TaskAtom, R7ExpressionAtom, R1SelfStateAtom]
+AtomType = Union[
+    R0EntityAtom, R3PersonAtom, R2TaskAtom, R7ExpressionAtom, R1SelfStateAtom,
+    R8CognitionAtom, R9EmotionAtom, R12OutcomeAtom,
+]
 
 
 class ExtractionResult(BaseModel):
-    """LLM 提取结果 — 严格对应 hl12_extract_v11 输出格式。"""
+    """LLM 提取结果 — 严格对应 hl12_extract prompt 输出格式（v11: 5 类，v12: 8 类）。"""
 
     summary: str = Field(max_length=50)
     atoms: list[AtomType] = Field(default_factory=list)
@@ -106,4 +167,8 @@ ATOM_MODELS = {
     "R7_Expression": R7ExpressionAtom,
     "R1_SelfState": R1SelfStateAtom,
     "R0_Entity": R0EntityAtom,
+    # Phase 1b (ADR-V6-016): the three atoms the v11 baseline lacked.
+    "R8_Cognition": R8CognitionAtom,
+    "R9_Emotion": R9EmotionAtom,
+    "R12_Outcome": R12OutcomeAtom,
 }

@@ -77,7 +77,9 @@ logger = logging.getLogger(__name__)
 # CREATE TABLE IF NOT EXISTS in apply_schema. C2 user-data table (soft-delete +
 # version). tool_args/result_summary are size-capped at capture time (PIPL §6
 # minimization — a web_fetch body is NOT stored whole).
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6  # v6 (ADR-V6-016): atom_kind column on meaning/feeling events
+                    # so R8/R9/R12 can be stored additively without touching the
+                    # intent_class/state_type CHECK constraints (no table rebuild).
 
 # Common columns shared by the four R-atom event tables (identity/meaning/
 # entity/feeling). Kept as a fragment so the four tables stay byte-for-byte
@@ -190,7 +192,11 @@ CREATE TABLE IF NOT EXISTS meaning_events (""" + _EVENT_SPINE + """,
     completed_at     TEXT,
     completion_note  TEXT,
     is_overdue       INTEGER NOT NULL DEFAULT 0,
-    updated_at       TEXT
+    updated_at       TEXT,
+    -- ADR-V6-016: marks the real atom type behind a row. R7/R8/R12 all share
+    -- meaning_events (intent_class CHECK can't be widened without a table
+    -- rebuild), so atom_kind distinguishes them for recall/graph queries.
+    atom_kind        TEXT NOT NULL DEFAULT 'R7'
 );
 CREATE INDEX IF NOT EXISTS idx_meaning_user_time  ON meaning_events(user_id, timestamp, id);
 CREATE INDEX IF NOT EXISTS idx_meaning_memo       ON meaning_events(memo_id);
@@ -218,7 +224,11 @@ CREATE TABLE IF NOT EXISTS feeling_events (""" + _EVENT_SPINE + """,
     intensity       TEXT NOT NULL CHECK (intensity IN ('high','medium','low')),
     emotion_vad     TEXT,
     ser_source      TEXT NOT NULL DEFAULT 'llm_text',
-    trigger_source  TEXT NOT NULL DEFAULT '{}'
+    trigger_source  TEXT NOT NULL DEFAULT '{}',
+    -- ADR-V6-016: marks the real atom type. R1/R9 share feeling_events
+    -- (state_type CHECK can't be widened without a table rebuild), so
+    -- atom_kind='R9' distinguishes co-occurrence emotion from self-state.
+    atom_kind       TEXT NOT NULL DEFAULT 'R1'
 );
 CREATE INDEX IF NOT EXISTS idx_feeling_user_time ON feeling_events(user_id, timestamp, id);
 CREATE INDEX IF NOT EXISTS idx_feeling_deleted   ON feeling_events(deleted_at);
@@ -478,11 +488,21 @@ _RECONCILE_COLUMNS: Dict[str, Dict[str, str]] = {
               "location_context": "TEXT DEFAULT '{}'"},
     "meaning_events": {"completed_at": "TEXT", "completion_note": "TEXT",
                        "is_overdue": "INTEGER NOT NULL DEFAULT 0",
-                       "updated_at": "TEXT"},
+                       "updated_at": "TEXT",
+                       # ADR-V6-016: R8/R12 marker column (defaults to R7 for
+                       # pre-existing rows).
+                       "atom_kind": "TEXT NOT NULL DEFAULT 'R7'"},
     "identity_events": {"sentiment": "TEXT", "interaction_type": "TEXT"},
     "entity_events": {},  # ADR-088 table is new in V6; nothing to reconcile yet.
     "feeling_events": {"emotion_vad": "TEXT",
-                       "ser_source": "TEXT NOT NULL DEFAULT 'llm_text'"},
+                       "ser_source": "TEXT NOT NULL DEFAULT 'llm_text'",
+                       # trigger_source is in CREATE TABLE but was missing here
+                       # — pre-v6 DBs lack the column and would fail the NOT
+                       # NULL DEFAULT '{}' insert. Added with R9 (which writes
+                       # trigger_source) to close the gap.
+                       "trigger_source": "TEXT NOT NULL DEFAULT '{}'",
+                       # ADR-V6-016: R9 marker column (defaults to R1).
+                       "atom_kind": "TEXT NOT NULL DEFAULT 'R1'"},
     "llm_call_logs": {"cost_cny": "REAL", "schema_valid": "INTEGER",
                       "prompt_template_version": "TEXT NOT NULL DEFAULT 'v1'"},
     # relations v4 terminal-state columns (§9#1/#5) — additive on existing DBs.

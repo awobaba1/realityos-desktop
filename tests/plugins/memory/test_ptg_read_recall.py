@@ -33,11 +33,11 @@ def test_recent_atoms_reconstructs_all_types(store):
         confidence_base=0.9, relation_confidence=0.95, memo_id=mid)
     store.insert_meaning_event(
         user_id="u1", source_text="x", intent_class="Need_To_Do",
-        task_description="交报告", urgency="high",
+        task_description="交报告", urgency="high", atom_kind="R2",
         confidence_base=0.8, relation_confidence=0.85, memo_id=mid)
     store.insert_meaning_event(
         user_id="u1", source_text="x", intent_class="Complaint",
-        task_description="服务太差",
+        task_description="服务太差", atom_kind="R7",
         confidence_base=0.7, relation_confidence=0.7, memo_id=mid)
     store.insert_feeling_event(
         user_id="u1", source_text="x", state_type="stress", direction="up",
