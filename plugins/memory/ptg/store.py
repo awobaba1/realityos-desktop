@@ -520,7 +520,7 @@ class PTGStore:
                 row = self._conn.execute(
                     """SELECT data_sufficiency, llm_call_id, version, created_at,
                               result_data, generated_by, period_start, period_end,
-                              confidence
+                              confidence, schema_version
                        FROM insight_aggregation
                        WHERE user_id = ? AND aggregation_type = ?
                          AND period_key = ? AND deleted_at IS NULL""",
@@ -542,6 +542,12 @@ class PTGStore:
             "period_start": row["period_start"],
             "period_end": row["period_end"],
             "confidence": row["confidence"],
+            # The prompt_version the cached report was generated under (stored in
+            # the schema_version column). The scheduler (ADR-V6-026) compares it
+            # to the service's current PROMPT_VERSION to detect a stale cache row
+            # after a prompt bump and regenerate it — without this, an old-prompt
+            # report is served until TTL expires.
+            "schema_version": row["schema_version"],
         }
 
     def founder_user_id(self) -> Optional[str]:

@@ -1,7 +1,9 @@
 # RealityOS 每周镜面 v1（PRD #4，架构 §0.5③ / §18.5 / ADR-V6-017）
 
 <!-- C6 版本化：本模板是 weekly_mirror v1，独立版本号，永不覆盖（改了就 v2）。
-     缓存键含 prompt_version → 改模板自动失效旧镜面（架构 §4.4④）。
+     prompt_version 存于 insight_aggregation.schema_version 列；调度探针校验
+     schema_version≠PROMPT_VERSION 即重生成 → 改模板(v1→v2)下次启动自动刷新旧镜面（ADR-V6-026；架构 §4.4④）。
+     （注：唯一键不含 prompt_version，刷新靠探针版本失配重生成，非键失效。）
      冷启动门控在服务层判定（§0.5③：注册<14天 OR memo<15条 → 占位，根本不调本 prompt）。
      调到本 prompt 说明数据已 sufficient/partial。-->
 

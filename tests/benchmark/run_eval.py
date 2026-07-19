@@ -52,6 +52,24 @@ _GATE_TARGETS = {"R3_Person": 0.85, "R2_Task": 0.80, "R1_SelfState": 0.70,
                  "R8_Cognition": 0.60, "R9_Emotion": 0.60, "R12_Outcome": 0.60}
 
 
+def _gate_banner(all_green: bool, precision: float, gates: dict, errors: int) -> str:
+    """Build the gate banner — HONEST recall/precision split (ADR-V6-026).
+
+    The gate checks RECALL per type only. Precision is intentionally UNGATED —
+    the ⑦ precision ceiling (~70%) is structural (commit 7758542e0 / ADR-V6-012),
+    not a regression. So a blanket ``ALL GREEN ✅`` would read as "extraction
+    fully validated" when only recall was checked and precision sits at ~63%.
+    Recall-pass ⇒ "RECALL GREEN / PRECISION DEFERRED", never a blanket green.
+    Extracted to a pure function so the honesty contract is regression-tested.
+    """
+    if all_green:
+        return (f"\nGATE: RECALL GREEN ✅ / PRECISION DEFERRED "
+                f"(⑦ ~{precision:.0%} structural ceiling — ADR-V6-012, ungated)")
+    miss = [t for t, g in gates.items() if g["pass"] is False]
+    return (f"\nGATE: RED ❌ — do NOT ship "
+            f"(recall missed: {miss or 'n/a'}; errors={errors})")
+
+
 def load_samples(limit: Optional[int] = None,
                  samples_file: Optional[Path] = None) -> list[dict]:
     src = samples_file or _SAMPLES_FILE
@@ -273,7 +291,7 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
         print(f"  {t:<13}{e:>7}{p:>7}{m:>7}{pr:>9.1%}{rc:>9.1%}  {targets[t]:.0%} {'✅' if ok else '❌'}")
     gated = [g for g in gates.values() if g["pass"] is not None]
     all_green = bool(gated) and all(g["pass"] for g in gated) and total["errors"] == 0
-    print(f"\nGATE: {'ALL GREEN ✅' if all_green else 'RED ❌ — do NOT ship'}")
+    print(_gate_banner(all_green, precision, gates, total["errors"]))
     print(f"{'='*64}")
 
     report = {"model": model, "provider": provider, "samples": len(samples),
@@ -282,7 +300,10 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
                                "predicted": total['type_stats'][t]['predicted'],
                                "matched": total['type_stats'][t]['matched'],
                                **gates[t]} for t in total["type_stats"]},
-              "gate_all_green": all_green}
+              "gate_all_green": all_green,
+              "gate_recall_green": all_green,
+              "gate_precision_status": "deferred_structural",
+              "gate_precision_note": "precision is UNGATED; ~70% ceiling is structural (commit 7758542e0 / ADR-V6-012), not a regression"}
     if out:
         Path(out).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"Report written: {out}")

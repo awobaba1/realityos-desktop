@@ -1443,7 +1443,26 @@ def init_agent(
                 agent._memory_manager = _MemoryManager()
                 _mp = _load_mem(_mem_provider_name)
                 if _mp and _mp.is_available():
-                    agent._memory_manager.add_provider(_mp)
+                    # RealityOS V6 (ADR-V6-025): sovereignty ACTIVATION guard.
+                    # The live memory.provider receives sync_turn — user
+                    # conversation data. An external SaaS backend would
+                    # exfiltrate that off-device, breaking the zero-server
+                    # promise. Refuse to activate it; fall back to local memory
+                    # only. Discovery/config elsewhere is unaffected (the
+                    # provider stays configurable & inspectable) — the guard is
+                    # at activation, not discovery.
+                    from plugins.memory import _v6_should_dormant
+                    if _v6_should_dormant(_mem_provider_name):
+                        logger.warning(
+                            "realityos sovereignty: active memory provider '%s' "
+                            "is an external SaaS backend — dormant in V6 (would "
+                            "exfiltrate user conversation data off-device). Not "
+                            "activating; using local memory only. Set "
+                            "HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY=1 to override.",
+                            _mem_provider_name)
+                        _mp = None
+                    else:
+                        agent._memory_manager.add_provider(_mp)
                 if agent._memory_manager.providers:
                     _init_kwargs = {
                         "session_id": agent.session_id,

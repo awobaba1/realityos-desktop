@@ -218,3 +218,80 @@ def test_start_scheduler_disabled_does_not_arm_guard():
     assert start_scheduler_if_due(enabled=False) is False
     # (guard not armed — verified by the autouse reset + the once-guard test
     # running cleanly after this one.)
+
+
+# ---------------------------------------------------------------------------
+# 7. Stale-prompt-version regeneration (ADR-V6-026)
+# ---------------------------------------------------------------------------
+
+def test_get_insight_returns_schema_version(store):
+    """ADR-V6-026 read-side regression: get_insight exposes ``schema_version``
+    (which holds the prompt_version the row was generated under) so the probe
+    can detect a stale-prompt cache row. The column always stored it; this
+    seals the read path the probe's staleness check depends on."""
+    win = _resolve_day(FIXED_NOW, None)
+    store.upsert_insight(
+        user_id=USER, aggregation_type="daily_report", period_key=DAY_KEY,
+        period_start=win["start_utc"], period_end=win["end_utc"],
+        input_data="{}", result_data="x", confidence=0.5,
+        data_sufficiency="partial", generated_by="manual",
+        llm_call_id=None, schema_version="v9", expires_at=win["end_utc"])
+    row = store.get_insight(user_id=USER, aggregation_type="daily_report",
+                            period_key=DAY_KEY)
+    assert row is not None
+    assert row["schema_version"] == "v9"
+
+
+def test_stale_prompt_version_triggers_regenerate(store):
+    """ADR-V6-026 core regression: a cached row generated under an OLD prompt
+    version (schema_version != PROMPT_VERSION) MUST be regenerated, not served
+    stale until TTL.
+
+    Before the fix the probe treated ANY existing row as "exists" and skipped —
+    so bumping the prompt (v1→v2) left the old-prompt report cached for the
+    whole TTL window (new/old reports "打架"). The prompt-template doc comment
+    even claimed the cache key contained prompt_version, which was false; the
+    unique index never did. The fix: the probe compares the row's
+    schema_version to the service's PROMPT_VERSION and regenerates on mismatch.
+    """
+    _seed_day_atoms(store, 8)  # sufficient yesterday → regen yields a real report
+    _preseed_weekly(store)
+    # Seed a STALE daily row (schema_version="v0"; service PROMPT_VERSION="v1").
+    win = _resolve_day(FIXED_NOW, None)
+    store.upsert_insight(
+        user_id=USER, aggregation_type="daily_report", period_key=DAY_KEY,
+        period_start=win["start_utc"], period_end=win["end_utc"],
+        input_data="{}", result_data="(stale v0 report)",
+        confidence=0.8, data_sufficiency="sufficient", generated_by="scheduled",
+        llm_call_id=None, schema_version="v0", expires_at=win["end_utc"])
+    caller, calls = _mock_caller()
+    res = run_due_reports(store, user_id=USER, now=FIXED_NOW, caller=caller)
+    # Stale ⇒ regenerated (NOT skipped), distinct reason, one LLM call.
+    assert res["daily"]["generated"] is True
+    assert res["daily"]["reason"] == "stale_prompt"
+    assert len(calls) == 1
+    # The refreshed row now carries the current prompt version + new content.
+    row = store.get_insight(user_id=USER, aggregation_type="daily_report",
+                            period_key=DAY_KEY)
+    assert row["schema_version"] == "v1"
+    assert row["result_data"] != "(stale v0 report)"
+
+
+def test_stale_regen_then_fresh_skips(store):
+    """Convergence: after a stale row is regenerated to the current prompt
+    version, a second run MUST skip — no infinite regen loop, idempotent."""
+    _seed_day_atoms(store, 8)
+    _preseed_weekly(store)
+    win = _resolve_day(FIXED_NOW, None)
+    store.upsert_insight(
+        user_id=USER, aggregation_type="daily_report", period_key=DAY_KEY,
+        period_start=win["start_utc"], period_end=win["end_utc"],
+        input_data="{}", result_data="(stale v0 report)", confidence=0.8,
+        data_sufficiency="sufficient", generated_by="scheduled",
+        llm_call_id=None, schema_version="v0", expires_at=win["end_utc"])
+    caller, calls = _mock_caller()
+    run_due_reports(store, user_id=USER, now=FIXED_NOW, caller=caller)  # regen
+    res2 = run_due_reports(store, user_id=USER, now=FIXED_NOW, caller=caller)
+    assert res2["daily"]["generated"] is False
+    assert res2["daily"]["reason"] == "exists"
+    assert len(calls) == 1  # only the first (stale) run called the LLM

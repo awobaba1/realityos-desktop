@@ -36,6 +36,7 @@ import pytest
 
 from plugins.memory import (
     _V6_EXTERNAL_MEMORY_BLOCKLIST,
+    _v6_should_dormant,
     load_memory_provider,
 )
 
@@ -45,31 +46,41 @@ from plugins.memory import (
 
 class TestExternalMemoryDormantGuard:
     @pytest.mark.parametrize("name", sorted(_V6_EXTERNAL_MEMORY_BLOCKLIST))
-    def test_refuses_every_external_provider(self, name):
-        # Every external SaaS memory provider must stay dormant in V6.
-        assert load_memory_provider(name) is None
+    def test_predicate_dormant_for_every_external_saas(self, name):
+        # The activation predicate must mark every external SaaS backend dormant
+        # — activating any would exfiltrate user data off-device.
+        assert _v6_should_dormant(name) is True
 
-    def test_local_ptg_is_not_blocked(self):
-        # The local provider (the V6 data brain) must load normally.
-        prov = load_memory_provider("ptg")
-        assert prov is not None
+    def test_predicate_active_for_local_providers(self):
+        # Local providers (the ptg brain; holographic local SQLite) are NOT
+        # dormant — they keep data on-device, so activation is allowed.
+        assert _v6_should_dormant("ptg") is False
+        assert _v6_should_dormant("holographic") is False
 
-    def test_escape_hatch_predicate_flips_with_opt_in(self, monkeypatch):
+    def test_escape_hatch_flips_predicate(self, monkeypatch):
         # A user who explicitly assumes the sovereignty risk can opt out.
-        import plugins.memory as mem
-
-        monkeypatch.setenv("HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY", "1")
-        assert mem._external_memory_allowed() is True
         monkeypatch.delenv("HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY", raising=False)
-        assert mem._external_memory_allowed() is False
+        assert _v6_should_dormant("honcho") is True
+        monkeypatch.setenv("HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY", "1")
+        assert _v6_should_dormant("honcho") is False
 
-    def test_guard_logs_sovereignty_warning(self, caplog):
+    def test_discovery_unblocked_for_local_holographic(self):
+        # The guard is at ACTIVATION (agent_init), NOT discovery. The local
+        # holographic provider must still load via the discovery path — this is
+        # the regression that broke tests/agent/test_memory_provider.py when the
+        # guard was wrongly placed inside load_memory_provider.
+        prov = load_memory_provider("holographic")
+        assert prov is not None
+        assert prov.name == "holographic"
+
+    def test_discovery_does_not_log_sovereignty_warning(self, caplog):
+        # Discovery (load_memory_provider) must NOT apply the sovereignty guard —
+        # the warning lives at activation (agent_init), so config/listing/backup
+        # of providers is silent here. Loading any provider via discovery logs
+        # no sovereignty warning.
         with caplog.at_level(logging.WARNING, logger="plugins.memory"):
-            load_memory_provider("honcho")
-        assert any(
-            "sovereignty" in rec.message.lower() and "honcho" in rec.message.lower()
-            for rec in caplog.records
-        ), [r.message for r in caplog.records]
+            load_memory_provider("holographic")
+        assert not any("sovereignty" in r.message.lower() for r in caplog.records)
 
 
 # ── A. §6.6 LLM egress audit (warn-once, public-non-allowlist only) ──────────

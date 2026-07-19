@@ -71,6 +71,24 @@ def _external_memory_allowed() -> bool:
     return os.environ.get("HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY", "") in {"1", "true", "yes"}
 
 
+def _v6_should_dormant(name: str) -> bool:
+    """RealityOS V6 sovereignty predicate (ADR-V6-025).
+
+    True iff ``name`` is an external SaaS memory backend that must stay DORMANT
+    in V6 — activating it as the live ``memory.provider`` would ship user
+    conversation data (PIPL L3) off-device to a third-party cloud host, breaking
+    the zero-server / data-sovereignty promise.
+
+    This is checked at the ACTIVATION chokepoint (``agent_init`` — where the
+    configured active provider is registered to receive ``sync_turn``), NOT in
+    ``load_memory_provider``. Discovery / config / listing / backup of these
+    providers still works (they must remain configurable & inspectable); only
+    live activation is refused, falling back to local memory. Escape hatch:
+    ``HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY=1`` (user assumes the risk).
+    """
+    return name in _V6_EXTERNAL_MEMORY_BLOCKLIST and not _external_memory_allowed()
+
+
 
 def _register_synthetic_package(name: str, search_locations: List[str]) -> None:
     """Register an empty package shell in sys.modules.
@@ -233,20 +251,13 @@ def load_memory_provider(name: str) -> Optional["MemoryProvider"]:
 
     Returns None if the provider is not found or fails to load.
     """
-    # RealityOS V6 (ADR-V6-025): sovereignty dormant guard. Refuse to load
-    # any external SaaS memory provider — it would ship user data off-device,
-    # breaking the zero-server promise. Fail-open to the local fallback
-    # (caller handles None → ptg / built-in curated memory).
-    if name in _V6_EXTERNAL_MEMORY_BLOCKLIST and not _external_memory_allowed():
-        logger.warning(
-            "realityos sovereignty: external memory provider '%s' is dormant in "
-            "V6 — it would send user data to a third-party host. Falling back to "
-            "the local provider. Set HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY=1 to "
-            "override (you assume the data-sovereignty risk).",
-            name,
-        )
-        return None
-
+    # NOTE (ADR-V6-025): the V6 sovereignty dormant guard is NOT applied here.
+    # This function is the DISCOVERY/config path — web UI, memory_setup, doctor,
+    # and backup all load providers to read schema/label/state without ever
+    # sending user data to them. Blocking here would break provider management.
+    # The guard lives at the ACTIVATION chokepoint (agent_init) via
+    # ``_v6_should_dormant()``: only the provider configured as the LIVE
+    # ``memory.provider`` (the one that receives sync_turn) is refused.
     provider_dir = find_provider_dir(name)
     if not provider_dir:
         logger.debug("Memory provider '%s' not found in bundled or user plugins", name)

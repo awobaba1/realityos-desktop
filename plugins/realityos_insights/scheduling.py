@@ -98,16 +98,26 @@ def _run_one(store: PTGStore, *, user_id: str, now: datetime,
         agg_type = svc_cls.AGGREGATION_TYPE
         existing = store.get_insight(
             user_id=user_id, aggregation_type=agg_type, period_key=period_key)
-        if existing is not None:
+        # Skip ONLY if a row exists AND it was generated under the CURRENT prompt
+        # version. A row from an older prompt (schema_version != PROMPT_VERSION)
+        # is stale: fall through to regenerate, so a prompt bump refreshes the
+        # cache (ADR-V6-026) instead of serving an old-prompt report until TTL.
+        # Without this check, raising PROMPT_VERSION (v1→v2) would leave the
+        # stale v1 report cached for the whole TTL window — new/old reports
+        # "打架" (the audit lens-5 fake-green the doc comment papered over).
+        if (existing is not None
+                and existing.get("schema_version") == svc_cls.PROMPT_VERSION):
             return {"generated": False, "period_key": period_key,
                     "reason": "exists",
                     "data_sufficiency": existing.get("data_sufficiency")}
+        stale_prompt = existing is not None
         svc = svc_cls(store, user_id=user_id, caller=caller, now_fn=lambda: now)
         res = svc.generate(generated_by="scheduled")
         return {"generated": True, "period_key": period_key,
                 "status": res.get("status"),
                 "data_sufficiency": res.get("data_sufficiency"),
-                "llm_call_id": res.get("llm_call_id")}
+                "llm_call_id": res.get("llm_call_id"),
+                "reason": "stale_prompt" if stale_prompt else "missing"}
     except Exception as exc:  # noqa: BLE001 — scheduler never raises (C7)
         logger.warning("insight scheduling failed (%s): %s",
                        getattr(svc_cls, "AGGREGATION_TYPE", "?"), exc)
