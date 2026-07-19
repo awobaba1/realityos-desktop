@@ -127,8 +127,14 @@ def test_pure_weekly_status_is_mirror(store):
         input_data="{}", result_data="# 本周镜面\n(pre-existing)",
         confidence=0.8, data_sufficiency="sufficient", generated_by="scheduled",
         llm_call_id=None, schema_version="v1", expires_at=win["week_end_utc"])
+    # Pin the READ to the seeded week via date_str. The read path resolves the
+    # period from real beijing_now() (not injectable here), so date_str=None
+    # would resolve a different week once the calendar crosses the week boundary
+    # (seeded week = 2026-07-06; real-now Monday 2026-07-20 → 2026-07-13). This
+    # made the test date-fragile (green on 07-19, red on 07-20). Pinning makes it
+    # deterministic regardless of the real calendar date.
     res = web_server._read_or_generate_insight(
-        "weekly-mirror", store, USER, date_str=None, force=False)
+        "weekly-mirror", store, USER, date_str=win["period_key"], force=False)
     assert res["status"] == "mirror"
 
 

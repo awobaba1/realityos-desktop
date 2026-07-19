@@ -11,6 +11,7 @@ time instead of first-token time.
 from __future__ import annotations
 
 import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -88,8 +89,13 @@ class TestFreshFinalForLongLivedPreviews:
             config=StreamConsumerConfig(fresh_final_after_seconds=60.0),
         )
         await consumer._send_or_edit("hello")
-        # Force the preview to look stale (visible for > 60s).
-        consumer._message_created_ts = 0.0  # zero = ~uptime seconds old
+        # Force the preview to look deterministically stale. Use a real
+        # monotonic offset, NOT 0.0: _should_send_fresh_final computes
+        # age = time.monotonic() - _message_created_ts, so 0.0 means
+        # "uptime seconds old" — under 60s early in a fresh CI slice, which
+        # flipped this test red (age < threshold ⇒ edit path ⇒ count 1).
+        # 120s-ago is stale regardless of process uptime.
+        consumer._message_created_ts = time.monotonic() - 120
         await consumer._send_or_edit("hello world", finalize=True)
         # Fresh send happened; no edit of the old preview.
         assert adapter.send.call_count == 2
@@ -114,7 +120,7 @@ class TestFreshFinalForLongLivedPreviews:
             config=StreamConsumerConfig(fresh_final_after_seconds=60.0),
         )
         await consumer._send_or_edit("hello")
-        consumer._message_created_ts = 0.0
+        consumer._message_created_ts = time.monotonic() - 120  # deterministically stale
         await consumer._send_or_edit("hello world", finalize=True)
         assert adapter.send.call_count == 2
         adapter.edit_message.assert_not_called()
@@ -135,7 +141,7 @@ class TestFreshFinalForLongLivedPreviews:
             config=StreamConsumerConfig(fresh_final_after_seconds=60.0),
         )
         await consumer._send_or_edit("hello")
-        consumer._message_created_ts = 0.0
+        consumer._message_created_ts = time.monotonic() - 120  # deterministically stale
         ok = await consumer._send_or_edit("hello world", finalize=True)
         # Fresh send was attempted and failed → edit happened instead.
         assert adapter.send.call_count == 2
