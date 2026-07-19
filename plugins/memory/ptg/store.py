@@ -443,6 +443,69 @@ class PTGStore:
                            metric_type, atom_type, exc)
         return metric_id
 
+    def upsert_insight(
+        self, *,
+        user_id: str,
+        aggregation_type: str,
+        period_key: str,
+        period_start: str,
+        period_end: str,
+        result_data: str,
+        input_data: Optional[str] = None,
+        confidence: float = 0.0,
+        data_days: int = 0,
+        data_sufficiency: str = "insufficient",
+        generated_by: str = "scheduled",
+        llm_call_id: Optional[str] = None,
+        schema_version: str = "1.0",
+        expires_at: str,
+    ) -> str:
+        """Upsert one insight_aggregation row (§4.4④ cache, ADR-V6-017).
+
+        Used by the weekly mirror: one row per (user, aggregation_type,
+        period_key) — regenerating a week replaces the cached mirror in place
+        (ON CONFLICT DO UPDATE), which is correct cache semantics. The ATOMS
+        that feed the mirror are immutable in the event tables (C2 preserved
+        there); the mirror itself is a derived cache, not a user-data record.
+
+        ``aggregation_type`` ∈ {'weekly_mirror', 'daily_report', ...}.
+        ``data_sufficiency`` ∈ {'sufficient','partial','insufficient'} (the
+        cold-start gate's verdict — 'insufficient' ⇒ the row holds a guidance
+        placeholder, not an LLM mirror). Never raises (C7).
+        """
+        import uuid as _uuid_mod
+        ins_id = str(_uuid_mod.uuid4())
+        try:
+            with self._lock:
+                self._conn.execute(
+                    """INSERT INTO insight_aggregation
+                       (id, user_id, aggregation_type, period_key, period_start,
+                        period_end, input_data, result_data, confidence,
+                        data_days, data_sufficiency, generated_by, llm_call_id,
+                        schema_version, version, created_at, expires_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(user_id, aggregation_type, period_key) DO UPDATE SET
+                         result_data=excluded.result_data,
+                         input_data=excluded.input_data,
+                         confidence=excluded.confidence,
+                         data_days=excluded.data_days,
+                         data_sufficiency=excluded.data_sufficiency,
+                         generated_by=excluded.generated_by,
+                         llm_call_id=excluded.llm_call_id,
+                         schema_version=excluded.schema_version,
+                         version=insight_aggregation.version + 1,
+                         created_at=excluded.created_at,
+                         expires_at=excluded.expires_at""",
+                    (ins_id, user_id, aggregation_type, period_key, period_start,
+                     period_end, input_data, result_data, float(confidence),
+                     int(data_days), data_sufficiency, generated_by, llm_call_id,
+                     schema_version, 1, _now_iso(), expires_at),
+                )
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("insight upsert failed (%s/%s): %s",
+                           aggregation_type, period_key, exc)
+        return ins_id
+
     def recent_quality_metrics(
         self,
         *,
@@ -769,7 +832,9 @@ class PTGStore:
     # (b) the prefetch renderer (§4.3A), which folds the graph into context.
 
     def recent_atoms(self, *, user_id: str, memo_id: Optional[str] = None,
-                     limit: int = 500) -> List[Dict[str, Any]]:
+                     limit: int = 500,
+                     since: Optional[str] = None, until: Optional[str] = None,
+                     ) -> List[Dict[str, Any]]:
         """Reconstruct R-atoms from the four event tables — what actually landed.
 
         Returns atom-dicts shaped for ``match_atom`` (eval) and for rendering.
@@ -781,18 +846,29 @@ class PTGStore:
         soft-delete.
 
         ``memo_id`` narrows to one memo (the eval reconstructs per-sample).
+        ``since``/``until`` (ISO-8601 strings) scope to a half-open time window
+        ``[since, until)`` on each event table's ``timestamp`` — used by the
+        weekly-mirror aggregator (ADR-V6-017) to read one week of atoms.
         """
         atoms: List[Dict[str, Any]] = []
         memo_clause = "AND memo_id = ?" if memo_id else ""
         memo_params: List[Any] = [memo_id] if memo_id else []
+        window_clause = ""
+        window_params: List[Any] = []
+        if since is not None:
+            window_clause += " AND timestamp >= ?"
+            window_params.append(since)
+        if until is not None:
+            window_clause += " AND timestamp < ?"
+            window_params.append(until)
         with self._lock:
             for r in self._conn.execute(
                 f"""SELECT person_name, mention_context, sentiment, interaction_type,
                            confidence_base, relation_confidence, timestamp
                     FROM identity_events
-                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}
+                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}{window_clause}
                     ORDER BY timestamp DESC LIMIT ?""",
-                [user_id, *memo_params, limit],
+                [user_id, *memo_params, *window_params, limit],
             ).fetchall():
                 atoms.append({
                     "type": "R3_Person", "person_name": r["person_name"],
@@ -807,9 +883,9 @@ class PTGStore:
                            topic_tags, completion_note, atom_kind,
                            confidence_base, relation_confidence, timestamp
                     FROM meaning_events
-                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}
+                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}{window_clause}
                     ORDER BY timestamp DESC LIMIT ?""",
-                [user_id, *memo_params, limit],
+                [user_id, *memo_params, *window_params, limit],
             ).fetchall():
                 conf = (r["relation_confidence"]
                         if r["relation_confidence"] is not None else r["confidence_base"])
@@ -853,9 +929,9 @@ class PTGStore:
                            trigger_source, atom_kind, confidence_base,
                            relation_confidence, timestamp
                     FROM feeling_events
-                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}
+                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}{window_clause}
                     ORDER BY timestamp DESC LIMIT ?""",
-                [user_id, *memo_params, limit],
+                [user_id, *memo_params, *window_params, limit],
             ).fetchall():
                 conf = (r["relation_confidence"]
                         if r["relation_confidence"] is not None else r["confidence_base"])
@@ -885,9 +961,9 @@ class PTGStore:
                 f"""SELECT entity_name, entity_category, mention_context,
                            confidence_base, relation_confidence, timestamp
                     FROM entity_events
-                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}
+                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}{window_clause}
                     ORDER BY timestamp DESC LIMIT ?""",
-                [user_id, *memo_params, limit],
+                [user_id, *memo_params, *window_params, limit],
             ).fetchall():
                 atoms.append({
                     "type": "R0_Entity", "entity_name": r["entity_name"],
@@ -899,6 +975,34 @@ class PTGStore:
                 })
         atoms.sort(key=lambda a: a.get("_ts") or "", reverse=True)
         return atoms[:limit]
+
+    def memo_count(self, user_id: str, *, include_deleted: bool = False) -> int:
+        """Count a tenant's captured memos (all-time, not windowed).
+
+        The weekly-mirror cold-start gate (ADR-V6-017 §0.5③) reads this: a
+        founder with < 15 memos gets a guidance placeholder, not a mirror that
+        would say "你这周提了 0 次家人" and trigger an uninstall.
+        """
+        clause = "" if include_deleted else " AND deleted_at IS NULL"
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT COUNT(*) FROM memos WHERE user_id = ?{clause}",
+                [user_id],
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def user_created_at(self, user_id: str) -> Optional[str]:
+        """The tenant's registration timestamp (realityos_users.created_at).
+
+        The weekly-mirror cold-start gate reads this: registration < 14 days →
+        placeholder (ADR-V6-017 §0.5③). None if the user row is absent.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT created_at FROM realityos_users WHERE id = ?",
+                [user_id],
+            ).fetchone()
+        return row[0] if row is not None else None
 
     def search_entities(self, user_id: str, query: str, *,
                         limit: int = 10) -> List[Dict[str, Any]]:

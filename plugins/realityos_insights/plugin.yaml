@@ -1,0 +1,4 @@
+name: realityos_insights
+version: "0.1.0"
+description: "RealityOS V6 insights layer (架构 §4.4/§18.5, ADR-V6-017). The first INSIGHT product on the Phase-1 atom layer: the weekly mirror (PRD #4) — weaves a week of atoms into a warm, specific mirror, gated by the §0.5③ cold-start rule (registration<14d OR <15 memos ⇒ placeholder). Output lands in insight_aggregation; LLM calls logged (C6), failures DLQ+degrade (C7), v1 prompt versioned (C6). Service invoked explicitly (desktop/cron wiring next)."
+author: RealityOS
