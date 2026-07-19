@@ -29,6 +29,62 @@ def provider(tmp_path):
     p.shutdown()
 
 
+def test_shutdown_drains_backup_thread_before_close(tmp_path, monkeypatch):
+    """ADR-V6-015 (C4 regression): shutdown() MUST join the §6.9 backup thread
+    BEFORE store.close(). Pre-fix, the backup thread (spawned in _run →
+    run_scheduled_protection) touched _conn via _meta_get/_meta_set while the
+    main thread closed it → a use-after-close segfault (reproduced 3/3 locally
+    via faulthandler, intermittently in CI). This forces the backup thread to be
+    mid-flight at shutdown and proves the bounded-join drain runs (no segfault).
+    """
+    import threading as _t
+    entered, release = _t.Event(), _t.Event()
+
+    def _blocking_protection(store, dest, **kw):
+        entered.set()
+        release.wait(timeout=10)  # hold the thread "mid-backup" until released
+
+    # _run lazy-imports it: `from .backup import run_scheduled_protection`.
+    monkeypatch.setattr(
+        "plugins.memory.ptg.backup.run_scheduled_protection",
+        _blocking_protection)
+
+    p = PTGProvider(config={
+        "db_path": str(tmp_path / "ptg.db"),
+        "backup": {"enabled": True, "dest_dir": str(tmp_path / "bk")},
+    })
+    p.initialize("sess-1", hermes_home=str(tmp_path), platform="cli",
+                 agent_context="primary")
+    try:
+        assert entered.wait(timeout=5), "backup thread never entered protection"
+        assert p._backup_thread is not None and p._backup_thread.is_alive()
+        done, err = _t.Event(), []
+
+        def _shutdown():
+            try:
+                p.shutdown()
+            except Exception as exc:  # noqa: BLE001
+                err.append(exc)
+            finally:
+                done.set()
+
+        _t.Thread(target=_shutdown, name="t-shutdown").start()
+        # shutdown is now blocked on bt.join(timeout). Releasing the backup
+        # thread lets the join return → shutdown proceeds to close + finishes.
+        # If the drain were missing, close() would fire under the live backup
+        # thread (the use-after-close segfault).
+        release.set()
+        assert done.wait(timeout=15), "shutdown did not return (backup not joined)"
+        assert not err, f"shutdown raised: {err}"
+        assert not p._backup_thread.is_alive()
+    finally:
+        release.set()  # never leave the backup thread hung
+        try:
+            p.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class _FailingStore:
     """A stand-in PTGStore whose __init__ raises — for the disable-gracefully test."""
 

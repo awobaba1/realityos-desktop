@@ -82,6 +82,12 @@ class PTGProvider(MemoryProvider):
         # block forever on a hung LLM call.
         self._atomize_threads: List["threading.Thread"] = []
         self._atomize_threads_lock = threading.Lock()
+        # §6.9 scheduled-protection thread (ADR-V6-014). Tracked separately so
+        # shutdown() can join it BEFORE store.close() — run_scheduled_protection
+        # touches _conn via _meta_get/_meta_set, so an unjoined backup thread +
+        # close() is a use-after-close segfault (caught by faulthandler; the
+        # ADR-V6-015 fix).
+        self._backup_thread = None
 
     # -- core lifecycle ---------------------------------------------------
 
@@ -174,6 +180,10 @@ class PTGProvider(MemoryProvider):
                 logger.warning("PTG scheduled protection failed: %s", exc)
 
         t = threading.Thread(target=_run, name="ptg-backup", daemon=True)
+        # Track for the shutdown() drain (ADR-V6-015): this thread touches _conn
+        # via _meta_get/_meta_set, so it MUST be joined before store.close() —
+        # closing the store under a running backup is a use-after-close segfault.
+        self._backup_thread = t
         t.start()
 
     def _resolve_user_id(self, init_kwargs: dict) -> str:
@@ -373,6 +383,18 @@ class PTGProvider(MemoryProvider):
                 "PTG shutdown: %d atomize thread(s) still alive after %.1fs drain "
                 "(hung LLM call?); proceeding to close — their atoms may be lost.",
                 len(still_alive), drain_timeout)
+        # DRAIN the §6.9 backup thread too (ADR-V6-015): run_scheduled_protection
+        # is one-shot but touches _conn (_meta_get/_meta_set) mid-flight; closing
+        # the store under it is a use-after-close segfault. One-shot ⇒ the join
+        # virtually always returns immediately; the bound only covers a backup
+        # that happens to be mid-write at shutdown.
+        bt = self._backup_thread
+        if bt is not None and bt.is_alive():
+            bt.join(timeout=drain_timeout)
+            if bt.is_alive():
+                logger.warning(
+                    "PTG shutdown: backup thread still alive after %.1fs drain; "
+                    "proceeding to close.", drain_timeout)
         if self._store is not None:
             try:
                 self._store.close()
