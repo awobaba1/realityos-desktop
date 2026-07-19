@@ -200,3 +200,99 @@ def test_resolve_db_path_substitutes_hermes_home(monkeypatch, tmp_path):
     monkeypatch.setattr(hermes_constants, "get_hermes_home", lambda: fake_home)
     resolved = s.resolve_db_path({"db_path": "$HERMES_HOME/ptg.db"})
     assert resolved == (fake_home / "ptg.db")
+
+
+# ---------------------------------------------------------------------------
+# post_tool_call → tool_events sink (v5, §9#4 + §0.6)
+# ---------------------------------------------------------------------------
+
+def _seed_founder(db_path):
+    """Stamp founder_user_id into ptg_meta + create the users row the FK needs,
+    so the capture hook can resolve a tenant."""
+    s = PTGStore(db_path=db_path)
+    s._conn.execute(
+        "INSERT OR REPLACE INTO ptg_meta(key, value) "
+        "VALUES ('founder_user_id', 'u-founder')")
+    s.ensure_founder("u-founder", "founder@realityos.local")
+    s.close()
+
+
+def test_post_tool_call_sinks_to_tool_events(tmp_path):
+    """v5: post_tool_call sinks a real row into tool_events (the §9#4 capture
+    surface), not just an audit log. End-to-end: hook → CaptureEvent gate →
+    tool_events row, readable via the shared store."""
+    db = str(tmp_path / "ptg.db")
+    _seed_founder(db)
+    cap._store = None
+    cap._user_id = None
+
+    ctx = _FakeCapCtx()
+    cap.register(ctx)
+    # Fire the hook with a realistic post_tool_call payload (mirrors what
+    # model_tools._emit_post_tool_call_hook dispatches).
+    assert ctx.hooks["post_tool_call"](
+        tool_name="web_fetch", args={"url": "https://example.com"},
+        result={"title": "Example"}, task_id="t1", session_id="s1",
+        tool_call_id="tc1", turn_id=1, api_request_id="r1",
+        duration_ms=88, status="ok", error_type=None, error_message=None,
+        middleware_trace=None) is None
+
+    chk = PTGStore(db_path=db)
+    rows = chk.recent_tool_events(user_id="u-founder")
+    chk.close()
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["tool_name"] == "web_fetch"
+    assert r["status"] == "ok"
+    assert r["duration_ms"] == 88
+    assert r["extracted_via"] == "post_tool_call"
+    import json
+    assert json.loads(r["tool_args"])["url"] == "https://example.com"
+
+
+def test_post_tool_call_routes_bad_payload_to_dlq(tmp_path, monkeypatch):
+    """C7: when the CaptureEvent gate raises, the payload goes to DLQ (never
+    silently dropped) and NO tool_events row is written."""
+    import plugins.memory.ptg.capture_schemas as cs
+
+    class _BoomCS:
+        @staticmethod
+        def from_hook_kwargs(_kwargs):
+            raise ValueError("simulated bad payload")
+    monkeypatch.setattr(cs, "CaptureEvent", _BoomCS)
+
+    db = str(tmp_path / "ptg.db")
+    _seed_founder(db)
+    cap._store = None
+    cap._user_id = None
+
+    ctx = _FakeCapCtx()
+    cap.register(ctx)
+    # Must NOT raise — the hook swallows the gate failure and routes to DLQ.
+    assert ctx.hooks["post_tool_call"](
+        tool_name="x", args={}, result="ok", status="ok") is None
+
+    chk = PTGStore(db_path=db)
+    assert chk.recent_tool_events(user_id="u-founder") == []
+    dlq_n = chk._conn.execute(
+        "SELECT COUNT(*) FROM dlq_messages WHERE user_id='u-founder'").fetchone()[0]
+    chk.close()
+    assert int(dlq_n) == 1
+
+
+def test_post_tool_call_log_only_before_founder(tmp_path):
+    """Before the first turn bootstraps the founder, the hook has no tenant to
+    sink under → log-only, never raises, writes nothing (C7 + NOT NULL guard)."""
+    db = str(tmp_path / "ptg.db")
+    # No founder_user_id seeded → _get_user_id() returns None.
+    cap._store = None
+    cap._user_id = None
+
+    ctx = _FakeCapCtx()
+    cap.register(ctx)
+    assert ctx.hooks["post_tool_call"](
+        tool_name="x", args={}, result="ok", status="ok") is None
+
+    chk = PTGStore(db_path=db)
+    assert chk.recent_tool_events(user_id="u-founder") == []
+    chk.close()

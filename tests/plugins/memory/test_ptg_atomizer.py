@@ -542,3 +542,86 @@ def test_re_atomize_same_atoms_bumps_mention_not_duplicates(store):
         "JOIN entities o ON r.object_id = o.id "
         "WHERE o.entity_name = '张三'").fetchone()
     assert edge["evidence_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# ADR-V6-013 (ADR-049 port): entity-vocabulary injection regression (C4)
+# ---------------------------------------------------------------------------
+
+def test_format_entity_vocab_none_when_empty():
+    """First-run (no entities) → None → section omitted (no token cost, no
+    behaviour change vs pre-vocab)."""
+    from plugins.memory.ptg.atomizer import _format_entity_vocab
+    assert _format_entity_vocab([]) is None
+
+
+def test_format_entity_vocab_renders_buckets_with_aliases():
+    from plugins.memory.ptg.atomizer import _format_entity_vocab
+    out = _format_entity_vocab([
+        {"entity_name": "张三", "entity_type": "person", "aliases": ["老张", "张总"]},
+        {"entity_name": "李四", "entity_type": "person", "aliases": []},
+        {"entity_name": "厦门国贸", "entity_type": "context", "aliases": []},
+    ])
+    assert out and out.startswith("## 已知实体词汇")
+    assert "ASR 同音误识别" in out          # the self-describing instruction
+    assert "[人物] 张三（老张、张总）; 李四" in out
+    assert "[情境] 厦门国贸" in out
+
+
+def test_format_user_prompt_omits_vocab_section_when_none():
+    from plugins.memory.ptg.atomizer import _format_user_prompt
+    out = _format_user_prompt("hello", _FIXED_NOW, None, entity_vocab=None)
+    assert "已知实体词汇" not in out        # first-run: no vocab section
+
+
+def test_format_user_prompt_injects_vocab_section_when_present():
+    from plugins.memory.ptg.atomizer import _format_user_prompt
+    out = _format_user_prompt("hello", _FIXED_NOW, None,
+                              entity_vocab="## 已知实体词汇\n[人物] 张三")
+    assert "已知实体词汇" in out
+    assert out.index("已知实体词汇") < out.index("hello")  # before source text
+
+
+def test_atomizer_vocab_section_none_on_first_run(store):
+    """Empty store → no entities → vocab None → extraction proceeds vocab-less."""
+    az = _atomizer(store, _callerReturning(_resp(_VALID_OUTPUT)))
+    assert az._entity_vocab_section() is None
+
+
+def test_atomizer_vocab_section_built_when_entities_exist(store):
+    """Once the user has entities, the section is built from the store."""
+    store.upsert_entity(user_id="user-1", entity_name="张三", entity_type="person",
+                        properties={"aliases": ["老张"]})
+    az = _atomizer(store, _callerReturning(_resp(_VALID_OUTPUT)))
+    section = az._entity_vocab_section()
+    assert section and "张三" in section and "老张" in section
+
+
+def test_atomizer_vocab_section_failisolates(store, monkeypatch):
+    """C7: a store load failure must NOT break extraction — vocab returns None
+    and atomize still runs (enrichment, not a gate)."""
+    def boom(*a, **kw):
+        raise RuntimeError("db locked")
+    az = _atomizer(store, _callerReturning(_resp(_VALID_OUTPUT)))
+    monkeypatch.setattr(store, "list_top_entities", boom)
+    assert az._entity_vocab_section() is None     # swallowed, not raised
+    # And extraction still completes end-to-end.
+    out = az.atomize(memo_id=_memo(store), source_text="x")
+    assert out["ok"] is True
+
+
+def test_materialization_persists_r3_aliases(store):
+    """ADR-V6-013: an R3 atom carrying aliases lands as an entity whose
+    properties.aliases is populated (so the vocab can surface them next turn)."""
+    import json
+    payload = {"summary": "s", "atoms": [
+        {"type": "R3_Person", "person_name": "张三", "aliases": ["老张", "张总"],
+         "sentiment": "neutral", "interaction_type": "meeting",
+         "segment_id": 0, "confidence": 0.9}]}
+    az = _atomizer(store, _callerReturning(_resp(payload)))
+    az.atomize(memo_id=_memo(store), source_text="x")
+    row = store._conn.execute(
+        "SELECT properties FROM entities WHERE entity_name=? AND user_id=?",
+        ("张三", "user-1")).fetchone()
+    assert row is not None
+    assert json.loads(row["properties"])["aliases"] == ["老张", "张总"]

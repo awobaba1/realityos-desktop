@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from plugins.memory.ptg.backup import (
-    backup_ptg, restore_drill, verify_backup, _stamp,
+    backup_ptg, restore_drill, run_scheduled_protection, verify_backup,
+    _stamp, _meta_get, _meta_set, _LAST_BACKUP_KEY, _LAST_DRILL_KEY,
 )
 from plugins.memory.ptg.store import PTGStore
 
@@ -132,3 +134,88 @@ def test_restore_drill_catches_overcount_corruption(store, tmp_path):
     report = restore_drill(store, path)
     assert report["ok"] is False                        # backup > live → caught
     assert any("memos" in m for m in report["mismatches"])
+
+
+# -- run_scheduled_protection: §6.9 startup-lazy daily backup + monthly drill ---
+
+def test_scheduled_backup_runs_when_overdue(store, tmp_path):
+    _seed(store)
+    dest = tmp_path / "backups"
+    # No last_backup_at recorded → age is inf → overdue → backup runs now.
+    # drill_interval pushed far out so only the backup leg fires this call.
+    result = run_scheduled_protection(
+        store, dest, now=_utc(10), drill_interval_days=9999)
+    assert result["backup_ran"] is True
+    assert result["backup_path"]
+    assert Path(result["backup_path"]).is_file()
+    # C7: success records the timestamp so the next launch won't re-back up.
+    assert _meta_get(store, _LAST_BACKUP_KEY) is not None
+
+
+def test_scheduled_backup_skips_when_fresh(store, tmp_path):
+    dest = tmp_path / "backups"
+    # Pretend a backup ran 1h ago → younger than the 24h interval → skip.
+    _meta_set(store, _LAST_BACKUP_KEY, _utc(9).isoformat())
+    result = run_scheduled_protection(
+        store, dest, now=_utc(10), drill_interval_days=9999)
+    assert result["backup_ran"] is False
+    assert result["backup_path"] is None
+    # Nothing was written (dir not even created when backup is skipped).
+    assert not dest.exists() or not any(dest.iterdir())
+
+
+def test_scheduled_drill_runs_monthly(store, tmp_path):
+    _seed(store)
+    dest = tmp_path / "backups"
+    backup_ptg(store, dest, now=_utc(1))                 # a real backup to drill against
+    # Backup fresh (1h ago); drill never ran (None → inf days) → drill overdue.
+    _meta_set(store, _LAST_BACKUP_KEY, _utc(9).isoformat())
+    result = run_scheduled_protection(
+        store, dest, now=_utc(10),
+        backup_interval_hours=24, drill_interval_days=30)
+    assert result["drill_ran"] is True
+    assert result["drill_report"]["ok"] is True
+    # Drill timestamp recorded ONLY on pass (failed drill must retry next launch).
+    assert _meta_get(store, _LAST_DRILL_KEY) is not None
+
+
+def test_scheduled_drill_skipped_when_fresh(store, tmp_path):
+    _seed(store)
+    dest = tmp_path / "backups"
+    backup_ptg(store, dest, now=_utc(1))
+    _meta_set(store, _LAST_BACKUP_KEY, _utc(9).isoformat())
+    _meta_set(store, _LAST_DRILL_KEY, _utc(9).isoformat())  # drilled 1h ago → fresh
+    result = run_scheduled_protection(
+        store, dest, now=_utc(10),
+        backup_interval_hours=24, drill_interval_days=30)
+    assert result["drill_ran"] is False
+    assert result["drill_report"] is None
+
+
+def test_scheduled_protection_fail_open(store, tmp_path):
+    # dest_dir is an existing FILE → mkdir inside backup_ptg raises.
+    # The scheduler MUST swallow it (never break app launch, C7) and surface
+    # the error, leaving last_backup_at unset so the next launch retries.
+    blocker = tmp_path / "is-a-file"
+    blocker.write_text("not a dir")
+    result = run_scheduled_protection(
+        store, blocker, now=_utc(10), drill_interval_days=9999)
+    assert result["backup_ran"] is False
+    assert result["error"]                                # surfaced, not silently swallowed
+    assert _meta_get(store, _LAST_BACKUP_KEY) is None     # not advanced → retries next launch
+
+
+def test_scheduled_protection_fail_open_on_drill(store, tmp_path):
+    # Drill leg failure (corrupt backup) must not break the scheduler either.
+    dest = tmp_path / "backups"
+    bad = dest / "ptg_backup_20260719T030000Z.db"
+    dest.mkdir()
+    bad.write_bytes(b"not a sqlite database")             # verify_backup will flag corrupt
+    _meta_set(store, _LAST_BACKUP_KEY, _utc(9).isoformat())  # backup fresh, skip it
+    result = run_scheduled_protection(
+        store, dest, now=_utc(10),
+        backup_interval_hours=24, drill_interval_days=30)
+    assert result["drill_ran"] is True                    # it attempted the drill
+    assert result["drill_report"]["ok"] is False          # ...and the drill FAILED (corrupt)
+    # Drill failure must NOT advance the timestamp → retried next launch.
+    assert _meta_get(store, _LAST_DRILL_KEY) is None

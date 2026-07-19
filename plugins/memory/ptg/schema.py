@@ -51,7 +51,33 @@ logger = logging.getLogger(__name__)
 # substring recall for ≥3-char terms; search_memos_fts adds a LIKE OR-join
 # safety-net for <3-char CJK (北京/老婆) that trigram can't match. Existing v2
 # DBs are upgraded by _ensure_fts_trigram (drop+recreate+rebuild).
-SCHEMA_VERSION = 3
+#
+# v4 (2026-07-19): the §9#8 / §11.2 irreversible investment — the
+# quality_metrics table that was skipped at Phase 1a is now built. Without it,
+# every evaluation run overwrote a single v6_eval_report.json and the time-series
+# quality history (precision/recall/cost/correction-rate/backtest-acc) was lost,
+# making the §11.1 walk-forward backtest impossible and leaving every §8
+# Phase-Gate KR without its "唯一证据来源". This is an additive table; existing
+# v3 DBs get it via apply_schema's executescript (CREATE TABLE IF NOT EXISTS) —
+# no _RECONCILE_COLUMNS entry needed for a brand-new table. Also adds the
+# relations terminal-state columns (delta/completeness/consent_tag) the §9#1/#5
+# irreversible investment demanded, so Phase 2 Quark/Theory won't force a PTG
+# schema migration (relations._RECONCILE_COLUMNS heals existing DBs additively).
+#
+# v5 (2026-07-19): the §9#4 irreversible investment + §0.6 capture surface —
+# the tool_events table. The ptg_capture plugin's post_tool_call hook was
+# AUDIT-LOG ONLY (ADR-V6-008 decision 5); the "操作电脑" execution surface it
+# guards had no DB sink, so every tool the agent ran on the user's behalf
+# vanished instead of becoming a personal-timeline asset (流经即捕获 was only
+# half-true — turns yes, tool executions no). tool_events is that sink. The
+# §9#4 columns ``extracted_via`` (capture provenance — 'post_tool_call') and
+# ``quark_evidence`` (JSON the Phase 2 quark extractor fills) are built NOW so
+# Phase 2 derivation won't force a schema migration — the same reason relations
+# got delta/completeness at v4. Additive; existing v4 DBs get it via the
+# CREATE TABLE IF NOT EXISTS in apply_schema. C2 user-data table (soft-delete +
+# version). tool_args/result_summary are size-capped at capture time (PIPL §6
+# minimization — a web_fetch body is NOT stored whole).
+SCHEMA_VERSION = 5
 
 # Common columns shared by the four R-atom event tables (identity/meaning/
 # entity/feeling). Kept as a fragment so the four tables stay byte-for-byte
@@ -234,6 +260,18 @@ CREATE TABLE IF NOT EXISTS relations (
     trend           TEXT,
     last_updated    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     evidence_count  INTEGER NOT NULL DEFAULT 1,
+    -- §9#1/#5 terminal-state columns (v4): the delta sub-fields container +
+    -- completeness + consent_tag the §9 irreversible investment demanded, so
+    -- Phase 2 Quark/Theory derivation + the §6 data constitution don't force a
+    -- PTG schema migration. delta = JSON of derived deltas (interaction_count
+    -- z-score etc., Phase 2 fills); completeness = 0..1 evidence sufficiency;
+    -- consent_tag = data-constitution tag (NULL=new/local-only default,
+    -- 'migrated'=V5 import per REV-9 H, 'shareable'/'restricted' etc.). Existing
+    -- v3 DBs get these additively via _RECONCILE_COLUMNS (NULL — backfill is the
+    -- V5 migration's job, not the schema's).
+    delta           TEXT,
+    completeness    REAL CHECK (completeness IS NULL OR completeness BETWEEN 0 AND 1),
+    consent_tag     TEXT,
     version         INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at      TEXT
@@ -312,6 +350,64 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_insight_user_type_period
     ON insight_aggregation(user_id, aggregation_type, period_key);
 CREATE INDEX IF NOT EXISTS idx_insight_expires ON insight_aggregation(expires_at);
 
+-- ── quality_metrics (§11.2 + §9#8 — Phase 1a irreversible investment) ─────
+-- Time-series quality telemetry: atom precision/recall/f1, LLM cost, user
+-- correction rate, backtest accuracy. THIS table is the sole evidence source
+-- for every §8 Phase-Gate KR (§11.2 line 829) and the substrate for the §11.1
+-- weekly walk-forward backtest. Built at Phase 1a so history accumulates from
+-- day one — the §9#8 warning ("avoid retrofitting, which makes historical data
+-- impossible to backtest") is exactly what skipping it at v2026.7.19 caused.
+-- C2 user-data table (soft-delete + version); value has NO CHECK because
+-- llm_cost is CNY (unbounded) while the ratio metrics are 0..1.
+CREATE TABLE IF NOT EXISTS quality_metrics (
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL REFERENCES realityos_users(id),
+    metric_date   TEXT NOT NULL,                 -- YYYY-MM-DD (the aggregation day)
+    metric_type   TEXT NOT NULL CHECK (metric_type IN
+                    ('atom_precision','atom_recall','atom_f1',
+                     'llm_cost','correction_rate','backtest_acc')),
+    atom_type     TEXT,                          -- R0/R1/R2/R3/R7 or NULL for overall
+    value         REAL NOT NULL,
+    sample_size   INTEGER NOT NULL DEFAULT 0,
+    note          TEXT,
+    version       INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_qm_date_type ON quality_metrics(metric_date, metric_type, atom_type);
+CREATE INDEX IF NOT EXISTS idx_qm_deleted   ON quality_metrics(deleted_at);
+
+-- ── tool_events (§9#4 + §0.6 — tool-execution capture surface) ──────────────
+-- The DB sink for the post_tool_call hook (the 操作电脑 capture surface). Until
+-- v5 the hook was audit-log only (ADR-V6-008 decision 5); now every tool the
+-- agent runs on the user's behalf becomes a searchable personal-timeline asset.
+-- tool_args / result_summary are size-capped at capture time — a web_fetch body
+-- is NOT stored whole (PIPL §6 minimization). extracted_via + quark_evidence
+-- are the §9#4 provenance + derivation hooks (Phase 2 quark extractor fills the
+-- latter); built now so Phase 2 won't force a migration.
+CREATE TABLE IF NOT EXISTS tool_events (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL REFERENCES realityos_users(id),
+    session_id      TEXT,
+    tool_name       TEXT NOT NULL,
+    tool_args       TEXT NOT NULL DEFAULT '{}',   -- JSON; size-capped (L3, may carry user content)
+    result_summary  TEXT,                          -- JSON; truncated result (minimization)
+    status          TEXT NOT NULL CHECK (status IN ('ok','error')),
+    error_type      TEXT,
+    error_msg       TEXT,
+    duration_ms     INTEGER,
+    extracted_via   TEXT NOT NULL DEFAULT 'post_tool_call',
+    quark_evidence  TEXT NOT NULL DEFAULT '[]',    -- JSON array; Phase 2 quark extractor fills
+    llm_call_id     TEXT,                          -- C6 linkage if the tool WAS an llm_* call
+    captured_at     TEXT NOT NULL,
+    version         INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tool_user_time ON tool_events(user_id, captured_at, id);
+CREATE INDEX IF NOT EXISTS idx_tool_name      ON tool_events(user_id, tool_name);
+CREATE INDEX IF NOT EXISTS idx_tool_deleted   ON tool_events(deleted_at);
+
 -- ── dlq_messages (append-only; C7; absorbs V5 filtered_atoms) ───────────
 -- C2-exempt: NO deleted_at, NO version (append-only infrastructure log).
 CREATE TABLE IF NOT EXISTS dlq_messages (
@@ -364,7 +460,8 @@ CREATE TABLE IF NOT EXISTS ptg_meta (
 C2_USER_TABLES = (
     "realityos_users", "memos", "identity_events", "meaning_events",
     "entity_events", "feeling_events", "entities", "relations",
-    "task_suggestions", "feedback", "insight_aggregation",
+    "task_suggestions", "feedback", "insight_aggregation", "quality_metrics",
+    "tool_events",
 )
 APPEND_ONLY_TABLES = ("dlq_messages", "llm_call_logs")
 ALL_TABLES = C2_USER_TABLES + APPEND_ONLY_TABLES
@@ -388,6 +485,15 @@ _RECONCILE_COLUMNS: Dict[str, Dict[str, str]] = {
                        "ser_source": "TEXT NOT NULL DEFAULT 'llm_text'"},
     "llm_call_logs": {"cost_cny": "REAL", "schema_valid": "INTEGER",
                       "prompt_template_version": "TEXT NOT NULL DEFAULT 'v1'"},
+    # relations v4 terminal-state columns (§9#1/#5) — additive on existing DBs.
+    "relations": {"delta": "TEXT", "completeness": "REAL",
+                  "consent_tag": "TEXT"},
+    # quality_metrics is new in v4 — created whole by _SCHEMA_SQL, nothing to
+    # reconcile. Listed for completeness/discoverability.
+    "quality_metrics": {},
+    # tool_events is new in v5 — created whole by _SCHEMA_SQL (§9#4 capture
+    # surface sink). Listed for discoverability; nothing additive to reconcile.
+    "tool_events": {},
     # NOTE: relations v1→v2 rename (source_id→subject_id, target_id→object_id,
     # updated_at→last_updated) is NOT additive and cannot be healed here. It
     # assumes a fresh DB — no v1 production ptg.db exists (V6 unreleased).
@@ -450,7 +556,7 @@ def validate_embedding_dim(blob: bytes, expected_dim: int) -> Optional[str]:
 
 
 def apply_schema(conn) -> None:
-    """Create all 13 tables + indexes + triggers + FTS, then reconcile any
+    """Create all PTG tables + indexes + triggers + FTS, then reconcile any
     columns missing on an existing DB. Idempotent."""
     conn.executescript(_SCHEMA_SQL)
     _reconcile_columns(conn)

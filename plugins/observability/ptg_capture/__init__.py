@@ -10,18 +10,21 @@ real PluginContext and shares the same ``PTGStore`` process-wide singleton as
 the memory provider (both resolve to ``<HERMES_HOME>/ptg.db`` → one connection
 via the shared-connection registry).
 
-PHASE 0 SCOPE (ADR-V6-008 decision 5)
--------------------------------------
-These hooks are AUDIT-LOG only. Their semantic DB sinks arrive with the
-extraction phase (behind the C5 schema-validation gate):
-  * post_tool_call        → tool-execution events (the 操作电脑 capture surface)
-  * pre_gateway_dispatch  → outbound-message capture (deferred to v2 per D4)
-  * on_session_end        → session batch extraction
+PHASE 0/1 SCOPE (ADR-V6-008 decision 5; v5 upgrade for post_tool_call)
+---------------------------------------------------------------------
+The three observer hooks and their sink status:
+  * post_tool_call        → tool_events SINK (v5, §9#4 + §0.6) — every tool the
+                            agent runs becomes a personal-timeline asset.
+                            Validated through CaptureEvent (C5-adjacent); a
+                            malformed payload → DLQ, never silently dropped.
+  * pre_gateway_dispatch  → outbound-message capture (audit-log; deferred to v2
+                            per D4 — PTGProvider.sync_turn already covers the
+                            outbound turn via the user-message surface).
+  * on_session_end        → session batch extraction hook point (audit-log only;
+                            semantic extraction arrives with the extraction phase).
 
-Logging now proves the wiring end-to-end and fixes the exact hook contracts
-so the extraction phase only adds DB writes. C7: every callback is wrapped so
-a capture failure can NEVER break the agent loop — hooks are observers; they
-return None (allow) and never raise.
+C7: every callback is wrapped so a capture failure can NEVER break the agent
+loop — hooks are observers; they return None (allow) and never raise.
 """
 
 from __future__ import annotations
@@ -96,15 +99,55 @@ def _safe(label: str, fn, *args, **kwargs):
 # ---------------------------------------------------------------------------
 
 def _on_post_tool_call(**kwargs):
-    """Every tool call — audit log. The 操作电脑 execution surface is captured
-    here once the extraction phase lands (Phase 0 = log only)."""
+    """Every tool call — sunk to ``tool_events`` as a personal-timeline asset
+    (v5, §9#4 + §0.6). The 操作电脑 execution surface. The payload is validated
+    through ``CaptureEvent`` (C5-adjacent gate); a malformed payload → DLQ,
+    never silently dropped (C7). Returns None (observer; never blocks).
+
+    When the store or founder user_id isn't resolvable yet (a hook can fire
+    before the first turn bootstraps the founder), the event is log-only — we
+    can't sink a NOT NULL user_id, and we never block the loop guessing one.
+    """
     tool_name = (kwargs.get("tool_name") or kwargs.get("function_name")
                  or "<unknown>")
-    status = kwargs.get("status") or ("error" if kwargs.get("error_type") else "ok")
-    dur = kwargs.get("duration_ms")
     uid = _get_user_id()
+    store = _get_store()
+    if store is None or not uid:
+        logger.debug("PTG capture [tool] no store/user yet; log only tool=%s",
+                     tool_name)
+        return None
+    # C5-adjacent gate: validate the payload shape before sink. A structurally
+    # bad dispatch (junk kwargs, a model_tools shape change) → DLQ, not garbage.
+    try:
+        from plugins.memory.ptg.capture_schemas import CaptureEvent
+        event = CaptureEvent.from_hook_kwargs(kwargs)
+    except Exception as exc:  # noqa: BLE001 — malformed payload → DLQ (C7)
+        logger.warning("PTG capture [tool] invalid payload (tool=%s): %s",
+                       tool_name, exc)
+        _safe("dlq", store.insert_dlq,
+              user_id=uid, source="ptg_capture.post_tool_call",
+              error_type="invalid_capture_payload",
+              error_msg=str(exc)[:1000],
+              # Minimal diagnostic — never re-dump the full (possibly huge/L3)
+              # args payload into the DLQ row.
+              original_data={"tool_name": tool_name,
+                             "args_keys": list(kwargs.get("args", {}).keys())
+                             if isinstance(kwargs.get("args"), dict) else []})
+        return None
+    _safe("tool_event", store.insert_tool_event,
+          user_id=uid,
+          tool_name=event.tool_name,
+          status=event.status,
+          tool_args=event.tool_args,
+          result_summary=event.result_summary,
+          session_id=event.session_id,
+          duration_ms=event.duration_ms,
+          error_type=event.error_type,
+          error_msg=event.error_msg,
+          extracted_via=event.extracted_via,
+          quark_evidence=event.quark_evidence)
     logger.info("PTG capture [tool] user=%s tool=%s status=%s dur=%sms",
-                uid, tool_name, status, dur)
+                uid, event.tool_name, event.status, event.duration_ms)
     return None
 
 

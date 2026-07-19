@@ -181,3 +181,131 @@ def restore_drill(store, backup_path) -> dict:
     with lock:
         live = _counts_from_conn(conn)
     return verify_backup(backup_path, expected_counts=live)
+
+
+# ---------------------------------------------------------------------------
+# Scheduled protection (§6.9 lines of defence ① + ③) — startup-lazy, no daemon
+# ---------------------------------------------------------------------------
+
+_LAST_BACKUP_KEY = "last_backup_at"
+_LAST_DRILL_KEY = "last_drill_at"
+
+
+def _meta_get(store, key: str) -> Optional[str]:
+    """Read a ptg_meta timestamp key, or None. Observation-only (C7)."""
+    conn = getattr(store, "_conn", None)
+    if conn is None:
+        return None
+    try:
+        with store._lock:
+            row = conn.execute(
+                "SELECT value FROM ptg_meta WHERE key=?", (key,)
+            ).fetchone()
+        return row[0] if row else None
+    except Exception as exc:  # noqa: BLE001 — scheduler must never break the app
+        logger.debug("ptg_meta read %s failed: %s", key, exc)
+        return None
+
+
+def _meta_set(store, key: str, value: str) -> None:
+    conn = getattr(store, "_conn", None)
+    if conn is None:
+        return
+    try:
+        with store._lock:
+            conn.execute(
+                "INSERT OR REPLACE INTO ptg_meta(key, value) VALUES (?, ?)",
+                (key, value),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("ptg_meta write %s failed: %s", key, exc)
+
+
+def _parse_iso_age_days(stamp: Optional[str], now: datetime) -> Optional[float]:
+    """Age in days of an ISO-8601 stamp vs ``now``. None if unparseable/empty."""
+    if not stamp:
+        return None
+    try:
+        then = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return max(0.0, (now - then).total_seconds() / 86400.0)
+
+
+def run_scheduled_protection(
+    store,
+    dest_dir,
+    *,
+    backup_interval_hours: float = 24.0,
+    drill_interval_days: float = 30.0,
+    now: Optional[datetime] = None,
+    keep: int = _DEFAULT_KEEP,
+) -> dict:
+    """Startup-lazy scheduler for §6.9 lines ① (daily backup) + ③ (monthly drill).
+
+    The desktop "brain" may not be running at 04:00, so a fixed wall-clock cron
+    is fragile. Instead: on EVERY launch the provider checks when the last
+    backup / drill ran (ptg_meta); if older than the interval, it runs now and
+    records the timestamp. Effect: "at least once per day the app is open" and
+    "at least once per 30 days" — the pragmatic desktop equivalent of §6.9's
+    scheduled cadence, with no daemon to install or keep alive.
+
+    Idempotent + fail-open (C7): every step is wrapped; a backup failure is
+    logged and does NOT update last_backup_at (so the next launch retries).
+    Returns ``{backup_ran, drill_ran, backup_path, drill_report, error}``.
+    """
+    result = {"backup_ran": False, "drill_ran": False, "backup_path": None,
+              "drill_report": None, "error": None}
+    now = now or _now_utc()
+    try:
+        backup_age_h = (_parse_iso_age_days(_meta_get(store, _LAST_BACKUP_KEY), now)
+                        or float("inf")) * 24.0
+        if backup_age_h >= backup_interval_hours:
+            backup_path = backup_ptg(store, dest_dir, keep=keep, now=now)
+            _meta_set(store, _LAST_BACKUP_KEY, backup_path.stem
+                      if hasattr(backup_path, "stem") else now.isoformat())
+            result["backup_ran"] = True
+            result["backup_path"] = str(backup_path)
+            logger.info("PTG scheduled backup ran: %s", backup_path)
+    except Exception as exc:  # noqa: BLE001 — backup failure must not break launch
+        result["error"] = f"backup: {exc}"
+        logger.warning("PTG scheduled backup FAILED (will retry next launch): %s", exc)
+
+    # Drill only against a backup that exists (the run above, or a prior one).
+    try:
+        drill_age_d = (_parse_iso_age_days(_meta_get(store, _LAST_DRILL_KEY), now)
+                       or float("inf"))
+        if drill_age_d >= drill_interval_days:
+            latest = _latest_backup(dest_dir)
+            if latest is not None:
+                report = restore_drill(store, latest)
+                if report.get("ok"):
+                    _meta_set(store, _LAST_DRILL_KEY, now.isoformat())
+                result["drill_ran"] = True
+                result["drill_report"] = report
+                if not report.get("ok"):
+                    logger.warning("PTG monthly restore drill FAILED: %s",
+                                   report.get("error") or report.get("mismatches"))
+                else:
+                    logger.info("PTG scheduled restore drill passed.")
+    except Exception as exc:  # noqa: BLE001 — drill failure must not break launch
+        prev = result.get("error")
+        result["error"] = f"{prev}; drill: {exc}" if prev else f"drill: {exc}"
+        logger.warning("PTG scheduled drill FAILED (non-fatal): %s", exc)
+    return result
+
+
+def _latest_backup(dest_dir) -> Optional[Path]:
+    """Newest ptg_backup_*.db under dest_dir, or None."""
+    dest = Path(dest_dir)
+    if not dest.exists():
+        return None
+    backups = sorted(
+        (p for p in dest.iterdir() if p.is_file() and _BACKUP_NAME_RE.match(p.name)),
+        key=lambda p: p.name,
+    )
+    return backups[-1] if backups else None

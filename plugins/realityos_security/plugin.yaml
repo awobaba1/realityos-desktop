@@ -1,0 +1,4 @@
+name: realityos_security
+version: "0.1.0"
+description: "RealityOS V6 net-policy enforcement (§6.5 + §6.6). Reuses Hermes' url_safety SSRF primitive and adds the §6.6 LLM-egress allowlist pin — the ONLY data-processing outbound channel is an allowlisted LLM provider API. Exposes fetch_guard / classify_url / assert_llm_egress as the single chokepoint for V6 outbound URLs. Phase 0: policy primitive live + tested; call-site wiring next."
+author: RealityOS

@@ -1,0 +1,4 @@
+name: realityos_sovereignty
+version: "0.1.0"
+description: "RealityOS V6 sovereignty layer (§6.1–§6.8). The user's control surface over their life-graph: two-mode cascade deletion (A=space reclaim, B=total forgetting), one-click JSON export (PIPL §45), minor-mode age gate (§6.7/PIPL §31), and the consent_tag exercise face (§6.1). Phase 1: exercise primitives live + tested; desktop UI wiring next."
+author: RealityOS

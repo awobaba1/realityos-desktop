@@ -141,6 +141,41 @@ class PTGProvider(MemoryProvider):
                 self._atomizer = None
                 self._atomize_enabled = False
 
+        # §6.9 scheduled protection (ADR-V6-014): startup-lazy daily backup +
+        # monthly restore drill. The desktop brain may not be open at 04:00, so
+        # we run on launch IF overdue (ptg_meta timestamps), in a daemon thread
+        # so init never blocks on a backup. Fail-open + opt-out
+        # (plugins.ptg.backup.enabled=false). Honours "data never leaves device"
+        # — dest_dir defaults to a pure-local <HERMES_HOME>/backups/ptg.
+        backup_cfg = self._config.get("backup") or {}
+        if backup_cfg.get("enabled", True):
+            self._spawn_scheduled_protection(backup_cfg)
+
+    def _spawn_scheduled_protection(self, backup_cfg: dict) -> None:
+        """Run §6.9 backup + drill off the init thread, fully fail-open (C7)."""
+        store = self._store
+        if store is None:
+            return
+
+        def _run() -> None:
+            try:
+                from .backup import run_scheduled_protection
+                dest = backup_cfg.get("dest_dir")
+                if not dest:
+                    from hermes_constants import get_hermes_home
+                    dest = str(get_hermes_home() / "backups" / "ptg")
+                run_scheduled_protection(
+                    store, dest,
+                    backup_interval_hours=float(backup_cfg.get("backup_interval_hours", 24)),
+                    drill_interval_days=float(backup_cfg.get("drill_interval_days", 30)),
+                    keep=int(backup_cfg.get("keep", 30)),
+                )
+            except Exception as exc:  # noqa: BLE001 — observer surface: never escape
+                logger.warning("PTG scheduled protection failed: %s", exc)
+
+        t = threading.Thread(target=_run, name="ptg-backup", daemon=True)
+        t.start()
+
     def _resolve_user_id(self, init_kwargs: dict) -> str:
         """Pick the tenant user_id for this desktop instance.
 

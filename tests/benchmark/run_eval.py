@@ -157,7 +157,9 @@ def evaluate_sample(predicted_atoms: list[dict], expected: dict) -> dict:
 
 def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
                    limit: Optional[int], workers: int, out: Optional[str],
-                   dump_fp: Optional[str] = None) -> dict:
+                   dump_fp: Optional[str] = None,
+                   ptg_db: Optional[str] = None,
+                   user_id: str = "founder") -> dict:
     from plugins.memory.ptg.atomizer import Atomizer
     from plugins.memory.ptg.store import PTGStore
 
@@ -272,7 +274,56 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
             for rec in fpfn_records:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         print(f"TP/FP/FN dump written: {dump_fp} ({len(fpfn_records)} samples)")
+    if ptg_db:
+        _record_report_to_quality_metrics(report, ptg_db, user_id, model)
     return report
+
+
+def _record_report_to_quality_metrics(report: dict, ptg_db: str,
+                                      user_id: str, model: str) -> None:
+    """§11.2/§9#8 — persist this run's metrics to the user's real PTG time-series.
+
+    The eval itself runs against a throwaway temp store (§11.3 — eval must not
+    pollute PTG). This is the opt-in bridge that accumulates the QUALITY
+    TELEMETRY (overall + per-atom-type precision/recall/f1) into quality_metrics
+    so the §11.1 walk-forward backtest has history and every §8 Gate KR has its
+    evidence source. Idempotent at the row level (append-only time series);
+    never raises (C7) — a metrics-write failure logs + continues.
+    """
+    try:
+        from datetime import datetime, timezone
+        from plugins.memory.ptg.store import PTGStore
+
+        metric_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        store = PTGStore(db_path=ptg_db)
+        try:
+            store.ensure_founder(user_id, "founder@realityos.local")
+            samples = int(report.get("samples", 0))
+            note = f"{report.get('provider', '?')}/{model}"
+            # Overall precision/recall/f1 (atom_type=None).
+            for mt, key in (("atom_precision", "precision"),
+                            ("atom_recall", "recall"),
+                            ("atom_f1", "f1")):
+                store.insert_quality_metric(
+                    user_id=user_id, metric_date=metric_date, metric_type=mt,
+                    value=float(report.get(key, 0.0)), atom_type=None,
+                    sample_size=samples, note=note)
+            # Per-atom-type precision/recall (R0/R1/R2/R3/R7).
+            for atom_type, stats in (report.get("per_type") or {}).items():
+                for mt, key in (("atom_precision", "precision"),
+                                ("atom_recall", "recall")):
+                    val = stats.get(key)
+                    if val is None:
+                        continue  # recall undefined when no expected atoms of type
+                    store.insert_quality_metric(
+                        user_id=user_id, metric_date=metric_date, metric_type=mt,
+                        value=float(val), atom_type=atom_type,
+                        sample_size=int(stats.get("expected", 0)), note=note)
+        finally:
+            store.close()
+        print(f"Quality metrics recorded to PTG: {ptg_db} (§11.2 time-series)")
+    except Exception as exc:  # noqa: BLE001 — metrics are observation-only (C7)
+        print(f"WARNING: quality_metrics record skipped (non-fatal): {exc}")
 
 
 if __name__ == "__main__":
@@ -286,7 +337,14 @@ if __name__ == "__main__":
     ap.add_argument("--out", type=str, default=None, help="Write JSON report to this path")
     ap.add_argument("--dump-fp", type=str, default=None,
                     help="Dump per-sample FP/FN atoms (JSONL) for root-cause diagnosis")
+    ap.add_argument("--ptg-db", type=str, default=None,
+                    help="Path to the user's REAL ptg.db — persist this run's metrics "
+                         "to the quality_metrics time-series (§11.2/§9#8). Opt-in; "
+                         "eval itself still runs in a throwaway temp store.")
+    ap.add_argument("--ptg-user-id", type=str, default="founder",
+                    help="user_id for quality_metrics rows (default: founder)")
     args = ap.parse_args()
     key, base = _resolve_creds(args.api_key, args.base_url)
     run_evaluation(api_key=key, base_url=base, model=args.model, provider=args.provider,
-                   limit=args.limit, workers=args.workers, out=args.out, dump_fp=args.dump_fp)
+                   limit=args.limit, workers=args.workers, out=args.out,
+                   dump_fp=args.dump_fp, ptg_db=args.ptg_db, user_id=args.ptg_user_id)

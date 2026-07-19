@@ -389,6 +389,175 @@ class PTGStore:
             return dlq_id
 
     # ------------------------------------------------------------------
+    # Quality telemetry — §11.2 / §9#8 time-series ground (Phase 1a)
+    # ------------------------------------------------------------------
+
+    def insert_quality_metric(
+        self,
+        *,
+        user_id: str,
+        metric_date: str,
+        metric_type: str,
+        value: float,
+        atom_type: Optional[str] = None,
+        sample_size: int = 0,
+        note: Optional[str] = None,
+    ) -> str:
+        """Append one quality_metric row (§11.2). The §8 Phase-Gate KR evidence.
+
+        ``metric_date`` is YYYY-MM-DD. ``metric_type`` is constrained by the
+        table CHECK (atom_precision/recall/f1, llm_cost, correction_rate,
+        backtest_acc). ``atom_type`` is R0/R1/R2/R3/R7 or None for overall.
+        Multiple rows per (date, metric_type, atom_type) are ALLOWED — this is
+        an append-only time series (one eval run → several rows), not a unique
+        aggregate. Never raises (C7); a metrics-write failure is logged + swallowed
+        so it can never break the eval/agent loop.
+        """
+        metric_id = _uuid()
+        try:
+            with self._lock:
+                self._conn.execute(
+                    """INSERT INTO quality_metrics
+                       (id, user_id, metric_date, metric_type, atom_type,
+                        value, sample_size, note, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (metric_id, user_id, metric_date, metric_type, atom_type,
+                     float(value), int(sample_size), note, _now_iso()),
+                )
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("quality_metric insert failed (%s/%s): %s",
+                           metric_type, atom_type, exc)
+        return metric_id
+
+    def recent_quality_metrics(
+        self,
+        *,
+        user_id: str,
+        metric_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Read the quality time-series (newest first) — backtest/dashboard feed.
+
+        Optional ``metric_type`` filter. Respects soft-delete. Never raises (C7).
+        """
+        try:
+            with self._lock:
+                if metric_type:
+                    rows = self._conn.execute(
+                        """SELECT metric_date, metric_type, atom_type, value,
+                                  sample_size, note
+                           FROM quality_metrics
+                           WHERE user_id = ? AND deleted_at IS NULL
+                             AND metric_type = ?
+                           ORDER BY metric_date DESC, created_at DESC LIMIT ?""",
+                        (user_id, metric_type, int(limit)),
+                    ).fetchall()
+                else:
+                    rows = self._conn.execute(
+                        """SELECT metric_date, metric_type, atom_type, value,
+                                  sample_size, note
+                           FROM quality_metrics
+                           WHERE user_id = ? AND deleted_at IS NULL
+                           ORDER BY metric_date DESC, created_at DESC LIMIT ?""",
+                        (user_id, int(limit)),
+                    ).fetchall()
+        except Exception as exc:  # noqa: BLE001 — read side, never break caller
+            logger.debug("recent_quality_metrics failed: %s", exc)
+            return []
+        return [dict(r) for r in rows] if rows else []
+
+    # ------------------------------------------------------------------
+    # Capture: tool-execution surface (§9#4 + §0.6 — post_tool_call sink, v5)
+    # ------------------------------------------------------------------
+
+    def insert_tool_event(
+        self,
+        *,
+        user_id: str,
+        tool_name: str,
+        status: str,
+        tool_args: Optional[dict] = None,
+        result_summary: Optional[dict] = None,
+        session_id: Optional[str] = None,
+        duration_ms: int = 0,
+        error_type: Optional[str] = None,
+        error_msg: Optional[str] = None,
+        extracted_via: str = "post_tool_call",
+        quark_evidence: Optional[list] = None,
+        llm_call_id: Optional[str] = None,
+        captured_at: Optional[str] = None,
+    ) -> str:
+        """Sink one tool-execution capture (§9#4 + §0.6). Never raises (C7).
+
+        The DB sink for the ``post_tool_call`` hook — the 操作电脑 capture surface.
+        ``tool_args`` / ``result_summary`` are expected already size-capped by
+        the caller (``CaptureEvent.from_hook_kwargs``); the store trusts that
+        gate and persists what it's handed. A write failure is logged + swallowed
+        so an observer can never break the agent loop. Returns the row id.
+        """
+        event_id = _uuid()
+        try:
+            with self._lock:
+                self._conn.execute(
+                    """INSERT INTO tool_events
+                       (id, user_id, session_id, tool_name, tool_args,
+                        result_summary, status, error_type, error_msg,
+                        duration_ms, extracted_via, quark_evidence, llm_call_id,
+                        captured_at, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        event_id, user_id, session_id, tool_name,
+                        json.dumps(tool_args or {}, ensure_ascii=False),
+                        (json.dumps(result_summary, ensure_ascii=False)
+                         if result_summary is not None else None),
+                        status, error_type, error_msg, int(duration_ms or 0),
+                        extracted_via,
+                        json.dumps(quark_evidence or [], ensure_ascii=False),
+                        llm_call_id, captured_at or _now_iso(), _now_iso(),
+                    ),
+                )
+        except Exception as exc:  # noqa: BLE001 — observer surface (C7)
+            logger.warning("tool_event insert failed (tool=%s): %s", tool_name, exc)
+        return event_id
+
+    def recent_tool_events(
+        self,
+        *,
+        user_id: str,
+        tool_name: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Read the tool-execution capture surface (newest first). Optional
+        ``tool_name`` filter. Respects soft-delete. Never raises (C7)."""
+        try:
+            with self._lock:
+                if tool_name:
+                    rows = self._conn.execute(
+                        """SELECT id, tool_name, status, tool_args, result_summary,
+                                  error_type, duration_ms, extracted_via,
+                                  quark_evidence, captured_at
+                           FROM tool_events
+                           WHERE user_id = ? AND deleted_at IS NULL
+                             AND tool_name = ?
+                           ORDER BY captured_at DESC LIMIT ?""",
+                        (user_id, tool_name, int(limit)),
+                    ).fetchall()
+                else:
+                    rows = self._conn.execute(
+                        """SELECT id, tool_name, status, tool_args, result_summary,
+                                  error_type, duration_ms, extracted_via,
+                                  quark_evidence, captured_at
+                           FROM tool_events
+                           WHERE user_id = ? AND deleted_at IS NULL
+                           ORDER BY captured_at DESC LIMIT ?""",
+                        (user_id, int(limit)),
+                    ).fetchall()
+        except Exception as exc:  # noqa: BLE001 — read side, never break caller
+            logger.debug("recent_tool_events failed: %s", exc)
+            return []
+        return [dict(r) for r in rows] if rows else []
+
+    # ------------------------------------------------------------------
     # Capture: R-atom event tables — used by the extraction phase (not Phase 0)
     # ------------------------------------------------------------------
 
@@ -495,7 +664,20 @@ class PTGStore:
                         base = json.loads(row["properties"] or "{}")
                     except Exception:  # noqa: BLE001 — never break a re-mention on bad JSON
                         base = {}
-                    base.update(properties)
+                    # aliases accumulate across re-mentions (ADR-V6-013): a person
+                    # called 老张 in memo 1 and 张总 in memo 2 should end up with
+                    # aliases=[老张, 张总]. Union (dedup, order-preserving) instead of
+                    # the shallow-overwrite every other key uses.
+                    if "aliases" in properties:
+                        merged = list(base.get("aliases") or [])
+                        for a in properties["aliases"] or []:
+                            if a and a not in merged:
+                                merged.append(a)
+                        base["aliases"] = merged
+                        base.update({k: v for k, v in properties.items()
+                                     if k != "aliases"})
+                    else:
+                        base.update(properties)
                     self._conn.execute(
                         "UPDATE entities SET mention_count = mention_count + 1, "
                         "last_seen_at = ?, updated_at = ?, version = version + 1, "
@@ -687,6 +869,41 @@ class PTGStore:
                 [user_id, *like_params, limit],
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def list_top_entities(self, user_id: str, *, limit: int = 100) -> List[Dict[str, Any]]:
+        """Top entities by mention_count — the LLM entity-vocabulary source
+        (ADR-V6-013, porting V5 ADR-049). Returns dicts (entity_name,
+        entity_type, mention_count, aliases). Excludes soft-deleted nodes and
+        the founder self-node (``properties.is_self``). Ordered mention_count
+        DESC so the most-mentioned (most likely to recur / be ASR-garbled) surface
+        first. Fetches a small over-fetch then filters self in Python (cheap, top-N).
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT entity_name, entity_type, mention_count, properties
+                   FROM entities
+                   WHERE user_id = ? AND deleted_at IS NULL
+                   ORDER BY mention_count DESC, last_seen_at DESC
+                   LIMIT ?""",
+                [user_id, limit + 10],
+            ).fetchall()
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            try:
+                props = json.loads(r["properties"] or "{}")
+            except (ValueError, TypeError):
+                props = {}
+            if props.get("is_self"):  # skip the implicit founder "我" node
+                continue
+            out.append({
+                "entity_name": r["entity_name"],
+                "entity_type": r["entity_type"],
+                "mention_count": r["mention_count"],
+                "aliases": list(props.get("aliases") or []),
+            })
+            if len(out) >= limit:
+                break
+        return out
 
     def relations_for_user(self, user_id: str, *, entity_id: Optional[str] = None,
                            limit: int = 50) -> List[Dict[str, Any]]:

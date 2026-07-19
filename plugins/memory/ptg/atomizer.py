@@ -75,7 +75,8 @@ def _beijing_now() -> datetime:
 
 
 def _format_user_prompt(source_text: str, now: datetime,
-                        location_context: Optional[dict]) -> str:
+                        location_context: Optional[dict],
+                        entity_vocab: Optional[str] = None) -> str:
     wd = _WEEKDAYS[now.weekday()]
     # f-string (not strftime %-m/%-d) so it's portable to the Linux CI runner.
     stamp = f"{now.year}年{now.month}月{now.day}日 {wd} {now.hour:02d}:{now.minute:02d}"
@@ -84,11 +85,54 @@ def _format_user_prompt(source_text: str, now: datetime,
         loc = location_context.get("name") or location_context.get("address")
         if loc:
             lines.append(f"地点：{loc}")
+    # ADR-V6-013 (ADR-049 port): inject the user's known-entity vocabulary so
+    # the LLM can (a) normalise near/synonymous mentions to the canonical name
+    # and (b) correct obvious ASR near-homophones (字体跳动→字节跳动). Only when
+    # the user already has entities; first-run omits it (no behaviour change).
+    # Lives in the VARIABLE user prompt (not the system template) — C6: the v11
+    # system prompt is untouched, no template overwrite.
+    if entity_vocab:
+        lines.append("")
+        lines.append(entity_vocab)
     lines.append("")
     lines.append(source_text.strip())
     lines.append("")
     lines.append(_JSON_SUFFIX.strip())
     return "\n".join(lines)
+
+
+# Bucket labels for the 4 entity_type values → human-readable section headers.
+_VOCAB_BUCKETS = [("person", "人物"), ("context", "情境"), ("topic", "话题"), ("task", "任务")]
+
+
+def _format_entity_vocab(entities: list[dict], *, per_bucket: int = 20) -> Optional[str]:
+    """Render the known-entity vocabulary section (ADR-V6-013). Returns None
+    when there are no entities (first-run → omit the section entirely).
+
+    Each line: ``canonical 名（别名1、别名2）; canonical2; …``. Buckets with no
+    entities are dropped so the section stays compact (~150-400 tokens).
+    """
+    by_type: dict[str, list[dict]] = {}
+    for e in entities:
+        by_type.setdefault(e["entity_type"], []).append(e)
+    sections: list[str] = []
+    for etype, label in _VOCAB_BUCKETS:
+        bucket = by_type.get(etype, [])[:per_bucket]
+        if not bucket:
+            continue
+        items = []
+        for e in bucket:
+            aliases = e.get("aliases") or []
+            if aliases:
+                items.append(f"{e['entity_name']}（{'、'.join(aliases)}）")
+            else:
+                items.append(e["entity_name"])
+        sections.append(f"[{label}] {'; '.join(items)}")
+    if not sections:
+        return None
+    return ("## 已知实体词汇（用于：① 把用户输入里的近似/同义称呼归一到下列标准名；"
+            "② 修正明显的 ASR 同音误识别（如「字体跳动」→「字节跳动」）。不强制只抽这些。）\n"
+            + "\n".join(sections))
 
 
 def _usage_tokens(usage: Any, key: str) -> int:
@@ -144,6 +188,23 @@ class Atomizer:
             self._system_prompt = _PROMPT_FILE.read_text(encoding="utf-8")
         return self._system_prompt
 
+    def _entity_vocab_section(self) -> Optional[str]:
+        """Build the known-entity vocabulary section (ADR-V6-013). Returns None
+        on first-run (no entities) OR on any load failure — extraction must
+        NEVER be blocked by a vocabulary hiccup (C7 fail-isolation: vocab is an
+        enrichment, not a gate). The Atomizer owns no entity state; the store
+        is the single source of which entities the user has.
+        """
+        try:
+            entities = self._store.list_top_entities(self._user_id, limit=100)
+        except Exception:  # noqa: BLE001 — enrichment must never break extraction
+            logger.warning("entity vocab load failed; extracting vocab-less",
+                           exc_info=True)
+            return None
+        if not entities:
+            return None
+        return _format_entity_vocab(entities)
+
     # -- public entry -----------------------------------------------------
 
     def atomize(
@@ -166,7 +227,11 @@ class Atomizer:
         start = time.monotonic()
 
         system_prompt = self._system()
-        user_prompt = _format_user_prompt(source_text, self._now_fn(), location_context)
+        # ADR-V6-013: build the known-entity vocabulary section (None on first
+        # run / load failure → extraction proceeds vocab-less, never blocked).
+        entity_vocab = self._entity_vocab_section()
+        user_prompt = _format_user_prompt(
+            source_text, self._now_fn(), location_context, entity_vocab)
         prompt_input = {
             "engine": "hl12_extract",
             "prompt_version": PROMPT_VERSION,
@@ -356,8 +421,13 @@ class Atomizer:
         if isinstance(atom, R3PersonAtom):
             ent_name, ent_type = atom.person_name, "person"
             edge_type, edge_val = "interacts_with", atom.interaction_type
+            # ADR-V6-013: persist aliases so the entity vocabulary (ADR-049 port)
+            # can surface canonical-name + aliases for cross-memo resolution +
+            # ASR near-homophone correction.
             props = {"sentiment": atom.sentiment,
                      "interaction_type": atom.interaction_type}
+            if atom.aliases:
+                props["aliases"] = list(atom.aliases)
         elif isinstance(atom, R0EntityAtom):
             ent_name = atom.entity_name
             # place/organization → context node; term → topic node (决策6 mapping).

@@ -213,6 +213,12 @@ def test_import_relations_v5_column_names(store, dump):
     assert row["object_id"].startswith("e0000000")
     assert row["last_updated"].startswith("2026-07-17")
     assert json.loads(row["trend"])["dir"] == "up"
+    # REV-9 H / §9#5: V5 imports get consent_tag='migrated' (V6-native stays
+    # NULL until the sovereignty layer tags it). delta/completeness have no
+    # derived value at import time → NULL.
+    assert row["consent_tag"] == "migrated"
+    assert row["delta"] is None
+    assert row["completeness"] is None
 
 
 # ---------------------------------------------------------------------------

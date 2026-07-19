@@ -309,7 +309,15 @@ def import_table(
             stats["read"] += 1
             try:
                 v5_row = json.loads(line)
-                buf.append(convert_row(v5_row, colmap))
+                row = convert_row(v5_row, colmap)
+                # REV-9 H / §9#5: V5 imports carry no consent_tag (the column is
+                # V6-new). Tag every migrated relation 'migrated' so the §6 data
+                # constitution can distinguish V5-imported edges from V6-native
+                # ones (NULL = fresh, not yet sovereignty-tagged). delta/
+                # completeness stay NULL — no derived data exists at import time.
+                if table == "relations":
+                    row.setdefault("consent_tag", "migrated")
+                buf.append(row)
             except Exception as exc:  # noqa: BLE001 — log + DLQ, keep going (C7)
                 stats["errors"] += 1
                 logger.warning("migrate %s:%d malformed: %s", table, line_no, exc)

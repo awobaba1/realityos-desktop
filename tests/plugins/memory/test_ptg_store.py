@@ -1,9 +1,10 @@
 """RealityOS V6 PTG store — schema + capture regression tests (ADR-V6-008).
 
-Locks the P0-4 data layer: 13-table V5-mirror schema, C2 soft-delete+version
-invariant, FTS5 recall, append-only logs, sqlite-vec graceful degrade, and
-the process-wide shared-connection singleton. Every test uses a unique temp
-DB path so the module-level _shared registry never collides across tests.
+Locks the P0-4 data layer: 14-table schema (13 V5-mirror + quality_metrics the
+§11.2/§9#8 Phase-1a irreversible investment), C2 soft-delete+version invariant,
+FTS5 recall, append-only logs, sqlite-vec graceful degrade, and the process-wide
+shared-connection singleton. Every test uses a unique temp DB path so the
+module-level _shared registry never collides across tests.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ def _columns(conn, table):
 # Schema: all 13 tables created
 # ---------------------------------------------------------------------------
 
-def test_all_thirteen_tables_exist(store):
+def test_all_tables_exist(store):
     tables = {row[0] for row in store._conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     for t in ptg_schema.ALL_TABLES:
@@ -48,6 +49,8 @@ def test_all_thirteen_tables_exist(store):
     # FTS5 virtual table + meta bookkeeping present too.
     assert "memos_fts" in tables
     assert "ptg_meta" in tables
+    # §11.2/§9#8 irreversible investment: quality_metrics table exists (Phase 1a).
+    assert "quality_metrics" in tables
 
 
 def test_schema_version_recorded(store):
@@ -411,3 +414,301 @@ def test_ensure_founder_promotes_migrated_row(store):
         "SELECT is_founder FROM realityos_users WHERE id='mig'").fetchone()
     assert after["is_founder"] == 1  # promoted — no second row created
     assert store.count_rows("realityos_users") == 2  # u1 + mig, no dup
+
+
+# ---------------------------------------------------------------------------
+# ADR-V6-013: list_top_entities + alias accumulation (entity vocabulary source)
+# ---------------------------------------------------------------------------
+
+def test_list_top_entities_orders_by_mention_count_excludes_self_and_deleted(store):
+    """The vocab source ranks most-mentioned first, skips the founder self-node
+    and soft-deleted nodes (so the LLM never sees '我' or dead entities)."""
+    store.upsert_entity(user_id="u1", entity_name="我", entity_type="person",
+                        properties={"is_self": True})           # excluded
+    zhang = store.upsert_entity(user_id="u1", entity_name="张三", entity_type="person")
+    for _ in range(3):                                            # 张三 mention_count=4
+        store.upsert_entity(user_id="u1", entity_name="张三", entity_type="person")
+    guomo = store.upsert_entity(user_id="u1", entity_name="厦门国贸",
+                                entity_type="context")           # mention_count=1
+    dead = store.upsert_entity(user_id="u1", entity_name="旧公司", entity_type="context")
+    store._conn.execute("UPDATE entities SET deleted_at=? WHERE id=?",
+                        ("2026-01-01", dead))                    # excluded
+
+    top = store.list_top_entities("u1", limit=100)
+    names = [e["entity_name"] for e in top]
+    assert names[0] == "张三"                # highest mention_count first
+    assert "厦门国贸" in names
+    assert "我" not in names                 # self excluded
+    assert "旧公司" not in names             # soft-deleted excluded
+    assert top[0]["mention_count"] == 4
+
+
+def test_upsert_entity_accumulates_aliases_across_rementions(store):
+    """ADR-V6-013: a person called 老张 in memo 1 and 张总 in memo 2 ends up
+    with aliases=[老张, 张总] — union, not overwrite (the shallow-merge every
+    other key uses would clobber the list on each re-mention)."""
+    store.upsert_entity(user_id="u1", entity_name="张三", entity_type="person",
+                        properties={"aliases": ["老张"]})
+    store.upsert_entity(user_id="u1", entity_name="张三", entity_type="person",
+                        properties={"aliases": ["张总"]})
+    store.upsert_entity(user_id="u1", entity_name="张三", entity_type="person",
+                        properties={"aliases": ["老张"]})   # dup → not re-added
+
+    import json
+    row = store._conn.execute(
+        "SELECT properties FROM entities WHERE entity_name=? AND user_id=?",
+        ("张三", "u1")).fetchone()
+    props = json.loads(row["properties"])
+    assert props["aliases"] == ["老张", "张总"]   # union, dedup, order-preserving
+
+
+# ---------------------------------------------------------------------------
+# §11.2 / §9#8 — quality_metrics (Phase 1a irreversible investment)
+# ---------------------------------------------------------------------------
+
+def test_quality_metrics_round_trip(store):
+    """insert_quality_metric lands a row; recent_quality_metrics reads it back
+    newest-first. This is the §8 Phase-Gate KR evidence source — a silent
+    regression here (wrong column, swallowed insert) re-opens the historical
+    quality-data-loss gap the v4 build closed."""
+    store.insert_quality_metric(
+        user_id="u1", metric_date="2026-07-19", metric_type="atom_precision",
+        value=0.656, atom_type=None, sample_size=200, note="deepseek/v11")
+    store.insert_quality_metric(
+        user_id="u1", metric_date="2026-07-19", metric_type="atom_recall",
+        value=0.902, atom_type=None, sample_size=200, note="deepseek/v11")
+    store.insert_quality_metric(
+        user_id="u1", metric_date="2026-07-19", metric_type="atom_precision",
+        value=0.85, atom_type="R3_Person", sample_size=122, note="per-type")
+
+    rows = store.recent_quality_metrics(user_id="u1")
+    assert len(rows) == 3
+    precisions = [r for r in rows if r["metric_type"] == "atom_precision"]
+    assert len(precisions) == 2
+    vals = {r["value"] for r in precisions}
+    assert 0.656 in vals and 0.85 in vals
+    # per-type row carries atom_type; overall row carries None
+    by_atom = {r["atom_type"]: r for r in precisions}
+    assert by_atom[None]["value"] == 0.656
+    assert by_atom["R3_Person"]["value"] == 0.85
+
+
+def test_quality_metrics_filter_and_softdelete(store):
+    """metric_type filter narrows; soft-delete hides a row (C2)."""
+    store.insert_quality_metric(user_id="u1", metric_date="2026-07-19",
+                                metric_type="llm_cost", value=0.011)
+    store.insert_quality_metric(user_id="u1", metric_date="2026-07-19",
+                                metric_type="atom_precision", value=0.7)
+    only_cost = store.recent_quality_metrics(user_id="u1", metric_type="llm_cost")
+    assert len(only_cost) == 1 and only_cost[0]["value"] == 0.011
+    # llm_cost can exceed 1.0 (CNY) — no BETWEEN 0..1 CHECK on value.
+    store.insert_quality_metric(user_id="u1", metric_date="2026-07-19",
+                                metric_type="llm_cost", value=12.5)
+    cost_rows = store.recent_quality_metrics(user_id="u1", metric_type="llm_cost")
+    assert {r["value"] for r in cost_rows} == {0.011, 12.5}
+    # C2: soft-deleting hides the row from the read API.
+    store._conn.execute(
+        "UPDATE quality_metrics SET deleted_at='2026-07-19' "
+        "WHERE metric_type='atom_precision'")
+    prec = store.recent_quality_metrics(user_id="u1", metric_type="atom_precision")
+    assert prec == []
+
+
+def test_quality_metrics_in_c2_user_tables(store):
+    """quality_metrics IS a C2 user-data table: deleted_at + version present.
+    A regression that drops it from C2_USER_TABLES would silently strip
+    soft-delete protection from the quality history."""
+    assert "quality_metrics" in ptg_schema.C2_USER_TABLES
+    cols = _columns(store._conn, "quality_metrics")
+    assert "deleted_at" in cols and "version" in cols
+
+
+def test_quality_metrics_metric_type_check_enforced(store):
+    """CHECK constraint rejects unknown metric_type — a typo'd metric_type would
+    silently create an un-queryable row. Must raise, not swallow."""
+    with pytest.raises(sqlite3.IntegrityError):
+        store._conn.execute(
+            "INSERT INTO quality_metrics(id,user_id,metric_date,metric_type,value) "
+            "VALUES ('x','u1','2026-07-19','not_a_metric',0.5)")
+
+
+# ---------------------------------------------------------------------------
+# §9#1/#5 — relations terminal-state columns (Phase 1a irreversible investment)
+# ---------------------------------------------------------------------------
+
+def test_relations_has_terminal_state_columns(store):
+    """delta / completeness / consent_tag exist on relations — the §9 terminal
+    container so Phase 2 Quark/Theory + the §6 data constitution don't force a
+    PTG schema migration. A regression that drops them re-opens §9#1/#5."""
+    cols = _columns(store._conn, "relations")
+    assert {"delta", "completeness", "consent_tag"} <= cols
+
+
+def test_relations_completeness_check_enforced(store):
+    """completeness is NULL or 0..1 — an out-of-range value must raise."""
+    sid = store.upsert_entity(user_id="u1", entity_name="我", entity_type="person",
+                              properties={"is_self": True})
+    oid = store.upsert_entity(user_id="u1", entity_name="张三", entity_type="person")
+    store.upsert_relation(user_id="u1", subject_id=sid, object_id=oid,
+                          relation_type="interacts_with", confidence=0.9)
+    with pytest.raises(sqlite3.IntegrityError):
+        store._conn.execute(
+            "UPDATE relations SET completeness=1.5 WHERE subject_id=?", (sid,))
+
+
+def test_reconcile_adds_relations_v4_columns(tmp_path):
+    """A DB created before v4 (relations without delta/completeness/consent_tag)
+    is healed additively on reopen — _RECONCILE_COLUMNS ALTERs the columns in.
+    Mirrors test_reconcile_idempotent_on_reopen. Never drops (C2 nothing-lost)."""
+    db = tmp_path / "ptg.db"
+    s = PTGStore(db_path=str(db))
+    # Simulate a pre-v4 relations table: drop the v4 columns.
+    s._conn.execute("ALTER TABLE relations RENAME TO relations_old")
+    s._conn.execute(
+        "CREATE TABLE relations AS SELECT id,user_id,subject_id,object_id,"
+        "relation_type,value,confidence,trend,last_updated,evidence_count,"
+        "version,created_at,deleted_at FROM relations_old")
+    s._conn.execute("DROP TABLE relations_old")
+    assert "delta" not in _columns(s._conn, "relations")
+    s.close()
+
+    # Reopen → apply_schema → _reconcile_columns heals the 3 columns in.
+    s2 = PTGStore(db_path=str(db))
+    cols = _columns(s2._conn, "relations")
+    assert {"delta", "completeness", "consent_tag"} <= cols
+    s2.close()
+
+
+def test_reconcile_creates_quality_metrics_on_old_db(tmp_path):
+    """A v3 DB (no quality_metrics table) gets it created on reopen — the §9#8
+    table is additive, heals via CREATE TABLE IF NOT EXISTS in apply_schema."""
+    db = tmp_path / "ptg.db"
+    s = PTGStore(db_path=str(db))
+    s._conn.execute("DROP TABLE quality_metrics")
+    tables = {r[0] for r in s._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    assert "quality_metrics" not in tables
+    s.close()
+
+    s2 = PTGStore(db_path=str(db))
+    tables = {r[0] for r in s2._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    assert "quality_metrics" in tables
+    s2.close()
+
+
+# ---------------------------------------------------------------------------
+# tool_events (§9#4 + §0.6 — tool-execution capture surface sink, v5)
+# ---------------------------------------------------------------------------
+
+def test_tool_events_table_exists_and_c2(store):
+    """§9#4 irreversible investment: the post_tool_call sink table exists AND is
+    a C2 user-data table (deleted_at + version). Missing this = the capture
+    surface had no sink = 流经即捕获 was only half-true."""
+    tables = {row[0] for row in store._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    assert "tool_events" in tables
+    assert "tool_events" in ptg_schema.C2_USER_TABLES
+    cols = _columns(store._conn, "tool_events")
+    assert "deleted_at" in cols and "version" in cols
+    # §9#4 provenance + derivation hooks built now (Phase 2 won't force migration)
+    assert "extracted_via" in cols and "quark_evidence" in cols
+
+
+def test_tool_event_round_trip(store):
+    """insert_tool_event lands a row; recent_tool_events reads it newest-first."""
+    store.insert_tool_event(
+        user_id="u1", tool_name="web_fetch", status="ok",
+        tool_args={"url": "https://example.com"}, result_summary={"title": "x"},
+        duration_ms=120)
+    store.insert_tool_event(
+        user_id="u1", tool_name="terminal", status="error",
+        tool_args={"cmd": "ls"}, error_type="non_zero_exit",
+        error_msg="exit 1", duration_ms=30)
+    rows = store.recent_tool_events(user_id="u1")
+    assert len(rows) == 2
+    by_tool = {r["tool_name"]: r for r in rows}
+    assert by_tool["web_fetch"]["status"] == "ok"
+    assert by_tool["web_fetch"]["extracted_via"] == "post_tool_call"
+    assert by_tool["terminal"]["status"] == "error"
+    assert by_tool["terminal"]["error_type"] == "non_zero_exit"
+    # quark_evidence defaults to empty JSON array until Phase 2 fills it.
+    import json
+    assert json.loads(by_tool["web_fetch"]["quark_evidence"]) == []
+
+
+def test_tool_event_filter_and_softdelete(store):
+    """tool_name filter narrows; soft-delete hides a row (C2)."""
+    store.insert_tool_event(user_id="u1", tool_name="web_fetch", status="ok")
+    store.insert_tool_event(user_id="u1", tool_name="write_file", status="ok")
+    only_web = store.recent_tool_events(user_id="u1", tool_name="web_fetch")
+    assert len(only_web) == 1 and only_web[0]["tool_name"] == "web_fetch"
+    # C2: soft-deleting hides the row from the read API.
+    web_id = only_web[0]["id"]
+    assert store.soft_delete("tool_events", web_id) is True
+    assert store.recent_tool_events(user_id="u1", tool_name="web_fetch") == []
+    assert len(store.recent_tool_events(user_id="u1")) == 1  # write_file still there
+
+
+def test_tool_event_size_capped_via_capture_event():
+    """PIPL §6 minimization: CaptureEvent caps oversized tool_args / result so a
+    multi-MB web body is never stored whole. (Unit test on the gate model.)"""
+    from plugins.memory.ptg.capture_schemas import (
+        CaptureEvent, MAX_TOOL_ARGS_CHARS, MAX_RESULT_SUMMARY_CHARS)
+    big = {"blob": "x" * (MAX_TOOL_ARGS_CHARS * 4)}
+    huge_result = "y" * (MAX_RESULT_SUMMARY_CHARS * 5)
+    event = CaptureEvent.from_hook_kwargs({
+        "tool_name": "web_fetch", "args": big, "result": huge_result,
+        "status": "ok", "duration_ms": 10,
+    })
+    import json
+    args_json = json.dumps(event.tool_args, ensure_ascii=False)
+    assert len(args_json) <= MAX_TOOL_ARGS_CHARS + 80  # cap + truncation marker slack
+    assert event.tool_args.get("_truncated") is True
+    assert len(event.result_summary["value"]) <= MAX_RESULT_SUMMARY_CHARS
+
+
+def test_tool_event_capture_event_rejects_bad_payload():
+    """C5-adjacent gate: a structurally-invalid payload raises (caller → DLQ),
+    never silently sinks garbage. (Missing tool_name is intentionally tolerated
+    — substituted with '<unknown>' per the hook contract; the gate rejects only
+    real structural violations like a bad status or negative duration.)"""
+    from plugins.memory.ptg.capture_schemas import CaptureEvent
+    import pytest as _pytest
+    # status='bogus' violates the ^(ok|error)$ pattern (mirrors the DB CHECK).
+    with _pytest.raises(Exception):
+        CaptureEvent.from_hook_kwargs(
+            {"tool_name": "x", "status": "bogus", "duration_ms": 1})
+    # negative duration violates ge=0.
+    with _pytest.raises(Exception):
+        CaptureEvent.from_hook_kwargs(
+            {"tool_name": "x", "status": "ok", "duration_ms": -5})
+
+
+def test_tool_event_insert_fail_open(store):
+    """C7: a bad-status insert (CHECK violation) is swallowed by insert_tool_event
+    — an observer must NEVER raise into the agent loop."""
+    # 'bogus' violates the status CHECK — the store logs + swallows (no raise).
+    store.insert_tool_event(user_id="u1", tool_name="x", status="bogus")
+    # The valid sink path still works after a failed one.
+    store.insert_tool_event(user_id="u1", tool_name="ok_tool", status="ok")
+    rows = store.recent_tool_events(user_id="u1")
+    assert len(rows) == 1 and rows[0]["tool_name"] == "ok_tool"
+
+
+def test_reconcile_creates_tool_events_on_old_db(tmp_path):
+    """A v4 DB (no tool_events) gets it created on reopen — the §9#4 table is
+    additive, heals via CREATE TABLE IF NOT EXISTS in apply_schema."""
+    db = tmp_path / "ptg.db"
+    s = PTGStore(db_path=str(db))
+    s._conn.execute("DROP TABLE tool_events")
+    tables = {r[0] for r in s._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    assert "tool_events" not in tables
+    s.close()
+
+    s2 = PTGStore(db_path=str(db))
+    tables = {r[0] for r in s2._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    assert "tool_events" in tables
+    s2.close()
