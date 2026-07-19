@@ -16,9 +16,17 @@ name: desktop-build
 # Triggers: release tags (v*) + manual (workflow_dispatch). Not on every push
 # — installer builds are heavy; artifacts are release-scoped.
 #
+# ADR-V6-037: a `publish` job (tag-only) attaches the built installers to the
+# release that triggered the build, closing the manual artifact→release gap that
+# let shipped work (batch 1/2/3) sit unreleased — the work was on main with a
+# green CI but never reached the download page (the most consequential fake-green:
+# "done" yet undistributable). workflow_dispatch builds still upload artifacts
+# only (no release to publish to).
+#
 # Validation note: YAML + command surface validated locally; the first tagged
 # run is the green-signal (3-verify pattern, cf. ADR-084/086): success status +
-# artifact present + (mac) matching the locally-validated dmg.
+# artifact present + (mac) matching the locally-validated dmg + (now) release
+# assets attached.
 
 on:
   push:
@@ -91,3 +99,40 @@ jobs:
           path: apps/desktop/release/${{ matrix.artifact_glob }}
           if-no-files-found: error
           retention-days: 30
+
+  # ADR-V6-037: attach the built installers to the release that triggered this
+  # tag build. Runs ONLY on tag pushes (a workflow_dispatch build has no release
+  # to publish to). Closes the manual gap that left completed work unreleased.
+  publish:
+    name: publish to release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all installer artifacts (flatten)
+        uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+
+      - name: Attach installers to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          echo "Attaching installers to release ${tag}:"
+          ls -lh installers/
+          # Create the release if it doesn't exist yet (idempotent), then upload.
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            gh release create "${tag}" --target "${{ github.event.base.ref || 'main' }}" \
+              --generate-notes --title "${tag}"
+          fi
+          gh release upload "${tag}" \
+            installers/RealityOS-*.dmg \
+            installers/RealityOS-*.exe \
+            --clobber
+          echo "Published. Release assets:"
+          gh release view "${tag}" --json assets --jq '.assets[] | "\(.name)  \(.size) bytes"'
