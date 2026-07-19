@@ -337,3 +337,76 @@ def test_shutdown_drain_is_bounded_against_hung_llm(provider):
     assert elapsed < 2.0  # did not hang — bounded by the 0.3s drain + margin
     assert provider._store is None  # store closed despite the hung thread
     release.set()  # let the daemon thread finish + die cleanly
+
+
+# ---------------------------------------------------------------------------
+# ADR-V6-012 / C4 regression: the FULL shipped loop — sync_turn spawns a
+# background atomize → atoms land in event tables + graph → provider.prefetch
+# renders BOTH the memo-recall block AND the §4.3A graph block. This is the
+# contract the real-DeepSeek E2E (2026-07-19) proved end-to-end; locked here
+# with a deterministic mock caller so it can't silently regress. The memo
+# recall half alone was already covered; the graph-block half (the ① read
+# loop) is what this test nails down.
+# ---------------------------------------------------------------------------
+
+def test_sync_turn_atomize_then_prefetch_renders_graph_block(provider):
+    from types import SimpleNamespace
+    from plugins.memory.ptg.atomizer import Atomizer
+
+    # Canned extraction: R3 person (张三) + R0 entity (厦门国贸) + R2 task — all
+    # above gate, all materialize into the graph (entities + self→X relations).
+    atoms_payload = {
+        "summary": "和张三在厦门国贸开会讨论述职报告",
+        "atoms": [
+            {"type": "R3_Person", "person_name": "张三", "sentiment": "neutral",
+             "interaction_type": "meeting", "segment_id": 0, "confidence": 0.95},
+            {"type": "R2_Task", "task_description": "周五前给张三述职报告草稿",
+             "urgency": "high", "deadline": None, "confidence": 0.9},
+            {"type": "R0_Entity", "entity_name": "厦门国贸", "entity_category": "organization",
+             "mention_context": "开会地点", "confidence": 0.9},
+        ],
+    }
+    canned_response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(
+            content=json.dumps(atoms_payload, ensure_ascii=False)))],
+        model="deepseek-v4-flash",
+        usage=SimpleNamespace(prompt_tokens=200, completion_tokens=80),
+    )
+
+    def mock_caller(**kwargs):
+        return canned_response
+
+    # Inject the mock caller into the provider's Atomizer (same seam the drain
+    # test uses) so atomization is deterministic and offline.
+    provider._atomizer = Atomizer(
+        provider._store, user_id=provider._user_id, llm_caller=mock_caller,
+    )
+
+    memo_text = "今天和张三在厦门国贸开会，讨论Q3述职报告，他压力很大。"
+    provider.sync_turn(user_content=memo_text, assistant_content="好的",
+                       session_id="sess-1")
+
+    # Wait for the background atomize daemon thread to finish (mock is instant;
+    # poll recent_atoms up to 5s).
+    import time
+    atoms = []
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        atoms = provider._store.recent_atoms(
+            user_id=provider._user_id, limit=50)
+        if atoms:
+            break
+        time.sleep(0.05)
+    assert atoms, "background atomize did not land atoms within 5s"
+
+    # prefetch must render BOTH halves: memo recall + graph block (§4.3A).
+    out = provider.prefetch("张三", session_id="sess-1")
+    assert out, "prefetch returned empty after atomize"
+    assert "张三" in out, "memo recall half missing 张三"
+    # Graph block markers (recall.render_relations_block header + a self→X edge).
+    assert "图谱" in out or "互动" in out or "有待办" in out, (
+        f"graph block half missing (write-only regression?); prefetch=\n{out}")
+    # The structured tie must be visible, not just raw memo text.
+    assert "张三" in out and ("互动" in out or "interacts_with" in out
+                              or "述职" in out), (
+        f"structured relation not rendered; prefetch=\n{out}")
