@@ -12264,6 +12264,87 @@ async def get_daily_report(request: Request) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# RealityOS V6 — PTG memory browser (ADR-V6-021). Read-only view of what the
+# brain has captured: atoms (people/events/tasks/emotions/cognition/outcome/
+# entities), entity directory (people/orgs/locations), and relations. De-black-
+# boxes the memory so the user can SEE it remembers (Phase 1b deliverable
+# "记住人/事/状态"). Pure read, no LLM, no writes; reuses the shared store +
+# founder helpers above; fail-open (C7).
+# ---------------------------------------------------------------------------
+
+
+def _serialize_atom(atom: dict) -> dict:
+    """One reconstructed atom → a UI card payload.
+
+    Keeps ``type``/``confidence``/``timestamp`` as top-level keys (the renderer
+    dispatches on type) and nests the rest under ``fields`` so the card can show
+    each atom's salient details without the UI hard-coding the column model.
+    """
+    return {
+        "type": atom.get("type"),
+        "confidence": atom.get("confidence"),
+        "timestamp": atom.get("_ts"),
+        "fields": {
+            k: v for k, v in atom.items() if k not in ("type", "confidence", "_ts")
+        },
+    }
+
+
+def _read_memory_browse(store, user_id: str, *, limit: int = 200) -> dict:
+    """Pure: gather atoms + entities + relations + counts for the browser.
+
+    Never raises (C7): returns a structured ``ok``/``error`` payload. ``limit``
+    caps atoms (most-recent first) and the entity/relation directories.
+    """
+    try:
+        atoms = store.recent_atoms(user_id=user_id, limit=limit)
+        entities = store.list_top_entities(user_id=user_id, limit=limit)
+        relations = store.relations_for_user(user_id=user_id, limit=limit)
+        return {
+            "status": "ok",
+            "atoms": [_serialize_atom(a) for a in atoms],
+            "entities": entities,
+            "relations": relations,
+            "memo_count": store.memo_count(user_id),
+            "created_at": store.user_created_at(user_id),
+        }
+    except Exception as exc:  # noqa: BLE001 — read API never raises (C7)
+        _log.warning("memory browse failed: %s", exc)
+        return {"status": "error", "message": str(exc)}
+
+
+async def _get_memory_browse(request: Request) -> dict:
+    """Handler for GET /api/memory/browse?limit=N."""
+    raw = (request.query_params.get("limit") or "").strip()
+    limit = max(1, min(int(raw), 500)) if raw.isdigit() else 200
+    try:
+        store = _open_ptg_store_for_insights()
+    except Exception as exc:  # noqa: BLE001 — read API never raises (C7)
+        _log.warning("memory browse store open failed: %s", exc)
+        return {"status": "error", "message": "数据存储暂不可用"}
+    try:
+        user_id = _resolve_insight_founder(store)
+        if not user_id:
+            # First-launch race (no founder yet) → warm no_data, never an error.
+            return {
+                "status": "no_data", "atoms": [], "entities": [], "relations": [],
+                "memo_count": 0, "created_at": None,
+                "message": "我还在了解你——继续和我聊几天，就有内容可以看了。",
+            }
+        return _read_memory_browse(store, user_id, limit=limit)
+    finally:
+        try:
+            store.close()
+        except Exception:  # noqa: BLE001 — best-effort refcount decrement
+            pass
+
+
+@app.get("/api/memory/browse")
+async def get_memory_browse(request: Request) -> dict:
+    return await _get_memory_browse(request)
+
+
+# ---------------------------------------------------------------------------
 # Operations endpoints — doctor / security audit / backup / import /
 # checkpoints / hooks.
 #

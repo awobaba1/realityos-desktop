@@ -24,6 +24,7 @@ import type {
   LogsResponse,
   McpCatalogResponse,
   McpServerSummary,
+  MemoryBrowseResponse,
   MemoryProviderConfig,
   MemoryProviderOAuthStatus,
   MemoryStatusResponse,
@@ -1285,6 +1286,18 @@ export function getWeeklyMirror(params: { date?: string; force?: boolean } = {})
 
 export function getDailyReport(params: { date?: string; force?: boolean } = {}): Promise<InsightReportResponse> {
   return getInsightReport('daily-report', params)
+}
+
+export function getMemoryBrowse(params: { limit?: number } = {}): Promise<MemoryBrowseResponse> {
+  const query = new URLSearchParams()
+
+  if (params.limit) {query.set('limit', String(params.limit))}
+  const qs = query.toString()
+
+  return window.hermesDesktop.api<MemoryBrowseResponse>({
+    ...profileScoped(),
+    path: `/api/memory/browse${qs ? `?${qs}` : ''}`
+  })
 }
 
 export function getCuratorStatus(): Promise<CuratorStatusResponse> {

@@ -5,6 +5,7 @@ import type { CSSProperties, ReactElement, PointerEvent as ReactPointerEvent } f
 import { PREVIEW_RAIL_MAX_WIDTH, PREVIEW_RAIL_MIN_WIDTH } from '@/app/chat/right-rail'
 import { PALETTE_AREA, type PaletteContribution } from '@/app/command-palette/contrib'
 import { InsightsPage } from '@/app/insights/InsightsPage'
+import { MemoryPage } from '@/app/memory/MemoryPage'
 import { type StatusbarItem } from '@/app/shell/statusbar-controls'
 import { toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
 import { allPaneIds, group, split } from '@/components/pane-shell/tree/model'
@@ -395,6 +396,28 @@ registry.registerMany([
     source: 'core',
     order: 35,
     data: { codicon: 'compendium', label: '洞察', path: '/insights' }
+  }
+])
+
+// Memory browser (ADR-V6-021): a read-only view of captured atoms (people/
+// events/tasks/emotions), the entity directory, and relations. De-black-boxes
+// the brain so the user can SEE what it remembers (Phase 1b "记住人/事/状态").
+// Sits above insights (order 30 < 35) — browse the raw memory before the reports.
+registry.registerMany([
+  {
+    id: 'memory-page',
+    area: ROUTES_AREA,
+    source: 'core',
+    title: '记忆',
+    data: { path: '/memory' },
+    render: () => <MemoryPage />
+  },
+  {
+    id: 'memory-nav',
+    area: SIDEBAR_NAV_AREA,
+    source: 'core',
+    order: 30,
+    data: { codicon: 'book', label: '记忆', path: '/memory' }
   }
 ])
 

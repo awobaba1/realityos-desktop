@@ -1065,6 +1065,48 @@ export interface InsightReportResponse {
   message?: string | null
 }
 
+/** Read-only PTG memory browser payload (ADR-V6-021). */
+export type MemoryBrowseStatus = 'ok' | 'no_data' | 'error'
+export type AtomType =
+  | 'R3_Person' | 'R2_Task' | 'R7_Expression' | 'R8_Cognition'
+  | 'R12_Outcome' | 'R1_SelfState' | 'R9_Emotion' | 'R0_Entity'
+
+export interface MemoryAtom {
+  type: AtomType
+  confidence: number | null
+  timestamp: string | null
+  /** Type-specific salient fields (person_name/task_description/state_type/...). */
+  fields: Record<string, unknown>
+}
+
+export interface MemoryEntity {
+  entity_name: string
+  entity_type: 'person' | 'task' | 'topic' | 'context' | string
+  mention_count: number
+  aliases: string[]
+}
+
+export interface MemoryRelation {
+  relation_type: string
+  value: string | null
+  confidence: number
+  evidence_count: number
+  subject_name: string
+  subject_type: string
+  object_name: string
+  object_type: string
+}
+
+export interface MemoryBrowseResponse {
+  status: MemoryBrowseStatus
+  atoms: MemoryAtom[]
+  entities: MemoryEntity[]
+  relations: MemoryRelation[]
+  memo_count: number | null
+  created_at: string | null
+  message?: string | null
+}
+
 /** `GET /api/curator` — background skill-curator status. */
 export interface CuratorStatusResponse {
   enabled: boolean

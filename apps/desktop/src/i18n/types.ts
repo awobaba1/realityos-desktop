@@ -1293,6 +1293,43 @@ export interface Translations {
     periodLabel: (start: string | null, end: string | null) => string
   }
 
+  memory: {
+    title: string
+    tabAtoms: string
+    tabEntities: string
+    tabRelations: string
+    memoCountLabel: (count: number | null) => string
+    memberSinceLabel: (date: string | null) => string
+    noDataTitle: string
+    noDataDesc: string
+    errorTitle: string
+    errorDesc: string
+    refresh: string
+    refreshing: string
+    refreshHelp: string
+    emptyAtomsTitle: string
+    emptyAtomsDesc: string
+    emptyEntitiesTitle: string
+    emptyEntitiesDesc: string
+    emptyRelationsTitle: string
+    emptyRelationsDesc: string
+    typePerson: string
+    typeTask: string
+    typeExpression: string
+    typeCognition: string
+    typeOutcome: string
+    typeSelfState: string
+    typeEmotion: string
+    typeEntity: string
+    entityTypePerson: string
+    entityTypeTask: string
+    entityTypeTopic: string
+    entityTypeContext: string
+    mentionsLabel: (count: number) => string
+    confidenceLabel: string
+    aliasesLabel: string
+  }
+
   sidebar: {
     nav: Record<string, string>
     searchAria: string
