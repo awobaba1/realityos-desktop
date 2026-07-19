@@ -1,7 +1,9 @@
-"""Tests for _setup_feishu() in hermes_cli/gateway.py.
+"""Tests for plugins.platforms.feishu.adapter.interactive_setup().
 
-Verifies that the interactive setup writes env vars that correctly drive the
-Feishu adapter: credentials, connection mode, DM policy, and group policy.
+(The helper moved out of hermes_cli/gateway.py::_setup_feishu in #41112; these
+tests were not retargeted at the time.) Verifies that the interactive setup
+writes env vars that correctly drive the Feishu adapter: credentials, connection
+mode, DM policy, and group policy.
 """
 
 import os
@@ -20,7 +22,7 @@ def _run_setup_feishu(
     prompt_responses=None,
     existing_env=None,
 ):
-    """Run _setup_feishu() with mocked I/O and return the env vars that were saved.
+    """Run interactive_setup() with mocked I/O and return the env vars that were saved.
 
     Returns a dict of {env_var_name: value} for all save_env_value calls.
     """
@@ -219,7 +221,7 @@ class TestSetupFeishuGroupPolicy:
 # ---------------------------------------------------------------------------
 
 class TestSetupFeishuAdapterIntegration:
-    """Verify that env vars written by _setup_feishu() produce a valid adapter config.
+    """Verify that env vars written by interactive_setup() produce a valid adapter config.
 
     This bridges the gap between 'setup wrote the right env vars' and
     'the adapter will actually initialize correctly from those vars'.
