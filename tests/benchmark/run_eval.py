@@ -120,15 +120,19 @@ def evaluate_sample(predicted_atoms: list[dict], expected: dict) -> dict:
     exp_atoms = expected.get("atoms", [])
 
     matched_expected: set[int] = set()
-    true_positives = 0
-    for pred in pred_atoms:
+    matched_pred: set[int] = set()
+    for pi, pred in enumerate(pred_atoms):
         for i, exp in enumerate(exp_atoms):
             if i not in matched_expected and match_atom(pred, exp):
                 matched_expected.add(i)
-                true_positives += 1
+                matched_pred.add(pi)
                 break
+    true_positives = len(matched_pred)
     false_positives = len(pred_atoms) - true_positives
     false_negatives = len(exp_atoms) - true_positives
+    # FP/FN atom dicts (for --dump-fp root-cause diagnosis, ADR-V6-012 ⑦).
+    fp_atoms = [pred_atoms[pi] for pi in range(len(pred_atoms)) if pi not in matched_pred]
+    fn_atoms = [exp_atoms[i] for i in range(len(exp_atoms)) if i not in matched_expected]
 
     type_stats: dict[str, dict] = {}
     for atom_type in ["R3_Person", "R2_Task", "R1_SelfState", "R7_Expression"]:
@@ -143,11 +147,13 @@ def evaluate_sample(predicted_atoms: list[dict], expected: dict) -> dict:
         type_stats[atom_type] = {"expected": len(type_exp), "predicted": len(type_pred),
                                  "matched": len(matched)}
     return {"tp": true_positives, "fp": false_positives, "fn": false_negatives,
+            "fp_atoms": fp_atoms, "fn_atoms": fn_atoms,
             "type_stats": type_stats}
 
 
 def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
-                   limit: Optional[int], workers: int, out: Optional[str]) -> dict:
+                   limit: Optional[int], workers: int, out: Optional[str],
+                   dump_fp: Optional[str] = None) -> dict:
     from plugins.memory.ptg.atomizer import Atomizer
     from plugins.memory.ptg.store import PTGStore
 
@@ -166,14 +172,22 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
     print(f"Samples: {len(samples)} | Model: {model} | Workers: {workers}", flush=True)
     print(f"Pipeline: Atomizer (v11 prompt + C5 gate + write + graph materialize)\n{'='*64}\n", flush=True)
 
+    fpfn_records: list[dict] = []  # for --dump-fp root-cause diagnosis
+
     def _process(sample):
         sid = sample["id"]
         memo_id = store.insert_memo(user_id="eval-user", source_text=sample["input_text"])
         counts = atomizer.atomize(memo_id=memo_id, source_text=sample["input_text"])
         if not counts.get("ok"):
-            return sid, None, "atomize failed (see DLQ)"
+            return sid, None, "atomize failed (see DLQ)", None
         predicted = store.recent_atoms(user_id="eval-user", memo_id=memo_id)
-        return sid, evaluate_sample(predicted, sample["expected_output"]), None
+        res = evaluate_sample(predicted, sample["expected_output"])
+        if dump_fp and (res["fp_atoms"] or res["fn_atoms"]):
+            fpfn_records.append({
+                "id": sid, "input_text": sample["input_text"],
+                "fp_atoms": res["fp_atoms"], "fn_atoms": res["fn_atoms"],
+            })
+        return sid, res, None, sample["input_text"]
 
     results = [None] * len(samples)
     with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
@@ -189,7 +203,7 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
              "type_stats": {t: {"expected": 0, "predicted": 0, "matched": 0}
                             for t in ["R3_Person", "R2_Task", "R1_SelfState", "R7_Expression"]}}
     for i, item in enumerate(results):
-        sid, res, err = item
+        sid, res, err, _input = item
         if err or res is None:
             total["errors"] += 1
             print(f"  [{i+1}/{len(samples)}] ❌ {sid}: {err}")
@@ -246,6 +260,11 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
     if out:
         Path(out).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"Report written: {out}")
+    if dump_fp:
+        with open(dump_fp, "w", encoding="utf-8") as f:
+            for rec in fpfn_records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        print(f"FP/FN dump written: {dump_fp} ({len(fpfn_records)} samples with errors)")
     return report
 
 
@@ -258,7 +277,9 @@ if __name__ == "__main__":
     ap.add_argument("--provider", type=str, default="deepseek")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--out", type=str, default=None, help="Write JSON report to this path")
+    ap.add_argument("--dump-fp", type=str, default=None,
+                    help="Dump per-sample FP/FN atoms (JSONL) for root-cause diagnosis")
     args = ap.parse_args()
     key, base = _resolve_creds(args.api_key, args.base_url)
     run_evaluation(api_key=key, base_url=base, model=args.model, provider=args.provider,
-                   limit=args.limit, workers=args.workers, out=args.out)
+                   limit=args.limit, workers=args.workers, out=args.out, dump_fp=args.dump_fp)
