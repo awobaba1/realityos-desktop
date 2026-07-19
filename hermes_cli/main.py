@@ -319,6 +319,7 @@ from hermes_cli.subcommands.pairing import build_pairing_parser
 from hermes_cli.subcommands.plugins import build_plugins_parser
 from hermes_cli.subcommands.mcp import build_mcp_parser
 from hermes_cli.subcommands.claw import build_claw_parser
+from hermes_cli.subcommands.calibrate import build_calibrate_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -13126,6 +13127,18 @@ def cmd_insights(args):
         print(f"Error generating insights: {e}")
 
 
+def cmd_calibrate(args):
+    """``hermes calibrate`` — founder daily atom calibration (ADR-V6-028).
+
+    Thin delegate to ``hermes_cli.calibrate_cmd``; the pure logic lives in
+    ``plugins.realityos_calibration`` (the §11.4/§11.5 closed-loop quality
+    channel: 准/不准/惊喜 → feedback + confidence demotion + correction_rate).
+    """
+    from hermes_cli.calibrate_cmd import cmd_calibrate as _run
+
+    return _run(args)
+
+
 def cmd_skills(args):
     # Route 'config' action to skills_config module
     if getattr(args, "skills_action", None) == "config":
@@ -14924,6 +14937,12 @@ def main():
     # insights command  (parser built in hermes_cli/subcommands/insights.py)
     # =========================================================================
     build_insights_parser(subparsers, cmd_insights=cmd_insights)
+
+    # =========================================================================
+    # calibrate command  (parser built in hermes_cli/subcommands/calibrate.py)
+    # Founder daily atom calibration — the §11.5 closed-loop quality channel.
+    # =========================================================================
+    build_calibrate_parser(subparsers, cmd_calibrate=cmd_calibrate)
 
     # =========================================================================
     # claw command  (parser built in hermes_cli/subcommands/claw.py)

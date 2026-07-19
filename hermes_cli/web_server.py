@@ -12121,18 +12121,15 @@ def _open_ptg_store_for_insights():
 def _resolve_insight_founder(store) -> str:
     """Resolve the founder user_id for this desktop instance.
 
-    Mirrors PTGProvider._resolve_user_id priority (provider.py) minus the
-    gateway-kwarg path (a stateless HTTP read has no gateway user context):
-    explicit ptg config ``founder_user_id`` > persisted ptg_meta value.
-    Returns "" when no founder is established yet (first-launch race).
+    Thin delegate over ``plugins.memory.ptg.founder.resolve_founder`` — ADR-V6-028
+    lifted this 3-layer resolution (explicit ptg config ``founder_user_id`` >
+    persisted ptg_meta value) into a shared module so the calibration CLI uses the
+    SAME resolution and the two never drift apart. Returns "" when no founder is
+    established yet (first-launch race).
     """
-    from plugins.memory.ptg.store import load_ptg_config
+    from plugins.memory.ptg.founder import resolve_founder
 
-    cfg_id = (load_ptg_config() or {}).get("founder_user_id")
-    if cfg_id:
-        return str(cfg_id)
-    uid = store.founder_user_id()
-    return uid or ""
+    return resolve_founder(store)
 
 
 # kind -> (service class, period resolver, aggregation_type, report status)

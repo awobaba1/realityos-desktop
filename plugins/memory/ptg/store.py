@@ -443,6 +443,121 @@ class PTGStore:
                            metric_type, atom_type, exc)
         return metric_id
 
+    def insert_feedback(
+        self, *, user_id: str, target_type: str, target_id: str,
+        rating: str, comment: Optional[str] = None,
+    ) -> str:
+        """Append-or-revive one feedback row (§11.4 founder verdict sink).
+
+        The feedback table carries a PLAIN unique index on
+        (user_id, target_type, target_id) (not partial) — ADR-083 F6: re-submitting
+        a verdict for the same target must revive the soft-deleted row, not INSERT
+        a new one (else UNIQUE violation). So this upserts: an existing row is
+        un-deleted + rating/comment updated + version bumped; a fresh (user,target)
+        gets a new insert. Never raises (C7). ``rating`` MUST be thumbs_up /
+        thumbs_down (table CHECK).
+
+        ADR-V6-028 encodes the §11.4 3-way verdict in ``target_type``
+        (calibration_correct / calibration_wrong / calibration_surprise) WITHOUT
+        widening the rating CHECK — correct/surprise → thumbs_up, wrong →
+        thumbs_down — so no migration is needed. The verdict itself is the
+        target_type; the atom row id is target_id; ``comment`` carries the
+        pre-adjust confidence snapshot + founder note (the audit trail for the
+        paired confidence mutation in ``adjust_atom_confidence``).
+        """
+        now = _now_iso()
+        try:
+            with self._lock:
+                row = self._conn.execute(
+                    "SELECT id FROM feedback "
+                    "WHERE user_id=? AND target_type=? AND target_id=?",
+                    (user_id, target_type, target_id),
+                ).fetchone()
+                if row is not None:
+                    self._conn.execute(
+                        "UPDATE feedback SET rating=?, comment=?, deleted_at=NULL, "
+                        "version=version+1, updated_at=? WHERE id=?",
+                        (rating, comment, now, row["id"]),
+                    )
+                    return row["id"]
+                fb_id = _uuid()
+                self._conn.execute(
+                    "INSERT INTO feedback "
+                    "(id, user_id, target_type, target_id, rating, comment, "
+                    "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (fb_id, user_id, target_type, target_id, rating, comment, now, now),
+                )
+                return fb_id
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("feedback insert failed (%s/%s): %s",
+                           target_type, target_id, exc)
+            return ""
+
+    # Atom type → event-table row that holds its relation_confidence. The four
+    # event tables share _EVENT_SPINE (incl. relation_confidence + deleted_at),
+    # so lowering confidence is one UPDATE dispatched by atom type. R8/R9/R12
+    # live in meaning/feeling behind atom_kind, but the row PK (atom_id) is
+    # unique within its table — UPDATE-by-id needs no atom_kind predicate.
+    _ATOM_TYPE_EVENT_TABLE = {
+        "R3_Person": "identity_events",
+        "R2_Task": "meaning_events",
+        "R7_Expression": "meaning_events",
+        "R8_Cognition": "meaning_events",
+        "R12_Outcome": "meaning_events",
+        "R0_Entity": "entity_events",
+        "R1_SelfState": "feeling_events",
+        "R9_Emotion": "feeling_events",
+    }
+
+    def adjust_atom_confidence(
+        self, *, user_id: str, atom_type: str, atom_id: str,
+        new_confidence: float, reason: Optional[str] = None,
+    ) -> int:
+        """§11.5 contract — the ONLY sanctioned human-mutates-confidence channel.
+
+        Lowers (or raises) ``relation_confidence`` on the specific event-table row
+        backing an atom. The founder's daily calibration verdict ("不准") routes
+        here: a wrong atom's effective confidence drops, so future reads
+        (recent_atoms / insights / weekly mirror) gate it out — WITHOUT deleting
+        the row (C2 nothing-lost; the atom is demoted, not erased).
+
+        ``atom_id`` is the row PK returned by ``recent_atoms`` as ``atom_id``
+        (ADR-V6-028). ``new_confidence`` is clamped to [0, 1] (table CHECK).
+        Returns the row count updated (0 = atom gone / soft-deleted / unknown
+        type — logged, never raised; C7). ``reason`` is recorded in the log +
+        the paired feedback row (callers write feedback first); this UPDATE
+        mutates only the confidence column (the event tables share no
+        ``updated_at`` outside meaning_events, so no timestamp column is touched).
+        """
+        table = self._ATOM_TYPE_EVENT_TABLE.get(atom_type)
+        if table is None:
+            logger.warning("adjust_atom_confidence: unknown atom_type %r", atom_type)
+            return 0
+        clamped = max(0.0, min(1.0, float(new_confidence)))
+        try:
+            with self._lock:
+                cur = self._conn.execute(
+                    f"UPDATE {table} SET relation_confidence=? "
+                    f"WHERE id=? AND user_id=? AND deleted_at IS NULL",
+                    (clamped, atom_id, user_id),
+                )
+                count = int(cur.rowcount or 0)
+            if count == 0:
+                logger.warning(
+                    "adjust_atom_confidence: %s row %s not found for user %s (%s)",
+                    atom_type, atom_id, user_id, reason or "no reason",
+                )
+            else:
+                logger.info(
+                    "adjust_atom_confidence: %s %s → %.3f (%s)",
+                    atom_type, atom_id, clamped, reason or "founder_calibration",
+                )
+            return count
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("adjust_atom_confidence failed (%s %s): %s",
+                           atom_type, atom_id, exc)
+            return 0
+
     def upsert_insight(
         self, *,
         user_id: str,
@@ -926,7 +1041,7 @@ class PTGStore:
             window_params.append(until)
         with self._lock:
             for r in self._conn.execute(
-                f"""SELECT person_name, mention_context, sentiment, interaction_type,
+                f"""SELECT id, person_name, mention_context, sentiment, interaction_type,
                            confidence_base, relation_confidence, timestamp
                     FROM identity_events
                     WHERE user_id = ? AND deleted_at IS NULL {memo_clause}{window_clause}
@@ -934,6 +1049,7 @@ class PTGStore:
                 [user_id, *memo_params, *window_params, limit],
             ).fetchall():
                 atoms.append({
+                    "atom_id": r["id"],
                     "type": "R3_Person", "person_name": r["person_name"],
                     "mention_context": r["mention_context"], "sentiment": r["sentiment"],
                     "interaction_type": r["interaction_type"],
@@ -942,7 +1058,7 @@ class PTGStore:
                     "_ts": r["timestamp"],
                 })
             for r in self._conn.execute(
-                f"""SELECT intent_class, task_description, urgency, deadline,
+                f"""SELECT id, intent_class, task_description, urgency, deadline,
                            topic_tags, completion_note, atom_kind,
                            confidence_base, relation_confidence, timestamp
                     FROM meaning_events
@@ -956,6 +1072,7 @@ class PTGStore:
                 if kind == "R8":
                     cn = _safe_json(r["completion_note"], {})
                     atoms.append({
+                        "atom_id": r["id"],
                         "type": "R8_Cognition", "topic": r["task_description"],
                         "knowledge_tags": _safe_json(r["topic_tags"], []),
                         "engagement": cn.get("engagement", "medium"),
@@ -965,6 +1082,7 @@ class PTGStore:
                 elif kind == "R12":
                     cn = _safe_json(r["completion_note"], {})
                     atoms.append({
+                        "atom_id": r["id"],
                         "type": "R12_Outcome", "task_ref": r["task_description"],
                         "outcome": cn.get("outcome", "completed"),
                         "resolution_note": cn.get("resolution_note"),
@@ -977,18 +1095,20 @@ class PTGStore:
                     # happens to carry Need_To_Do + atom_kind='R7' is an R7
                     # expression of intent, correctly reconstructed as R7 below.
                     atoms.append({
+                        "atom_id": r["id"],
                         "type": "R2_Task", "task_description": r["task_description"],
                         "urgency": r["urgency"], "deadline": r["deadline"],
                         "confidence": conf, "_ts": r["timestamp"],
                     })
                 else:
                     atoms.append({
+                        "atom_id": r["id"],
                         "type": "R7_Expression", "intent_class": r["intent_class"],
                         "content_summary": r["task_description"],
                         "confidence": conf, "_ts": r["timestamp"],
                     })
             for r in self._conn.execute(
-                f"""SELECT state_type, direction, intensity, emotion_vad,
+                f"""SELECT id, state_type, direction, intensity, emotion_vad,
                            trigger_source, atom_kind, confidence_base,
                            relation_confidence, timestamp
                     FROM feeling_events
@@ -1006,6 +1126,7 @@ class PTGStore:
                     vad = _safe_json(r["emotion_vad"], {})
                     trg = _safe_json(r["trigger_source"], {})
                     atoms.append({
+                        "atom_id": r["id"],
                         "type": "R9_Emotion",
                         "emotion_label": vad.get("label", "unknown"),
                         "valence": vad.get("valence", "neutral"),
@@ -1016,12 +1137,13 @@ class PTGStore:
                     })
                 else:
                     atoms.append({
+                        "atom_id": r["id"],
                         "type": "R1_SelfState", "state_type": r["state_type"],
                         "direction": r["direction"], "intensity": r["intensity"],
                         "confidence": conf, "_ts": r["timestamp"],
                     })
             for r in self._conn.execute(
-                f"""SELECT entity_name, entity_category, mention_context,
+                f"""SELECT id, entity_name, entity_category, mention_context,
                            confidence_base, relation_confidence, timestamp
                     FROM entity_events
                     WHERE user_id = ? AND deleted_at IS NULL {memo_clause}{window_clause}
@@ -1029,6 +1151,7 @@ class PTGStore:
                 [user_id, *memo_params, *window_params, limit],
             ).fetchall():
                 atoms.append({
+                    "atom_id": r["id"],
                     "type": "R0_Entity", "entity_name": r["entity_name"],
                     "entity_category": r["entity_category"],
                     "mention_context": r["mention_context"],
