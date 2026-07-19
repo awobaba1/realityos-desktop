@@ -1,10 +1,12 @@
-"""RealityOS V6 — weekly aggregation (ADR-V6-017, 架构 §4.4).
+"""RealityOS V6 — period-window atom aggregation (ADR-V6-017/018, 架构 §4.4).
 
-Turns one week of PTG atoms into the structured dict the weekly-mirror prompt
-consumes. Pure data assembly — no LLM, no gate decisions. The
-``WeeklyMirrorService`` runs the cold-start gate and decides placeholder vs
-LLM; this module just reads the week's atoms (``PTGStore.recent_atoms`` with a
-``[since, until)`` window, ADR-V6-016) and groups them.
+Turns one time-window of PTG atoms into the structured dict an insight-report
+prompt consumes (weekly mirror / daily report / future monthly). Pure data
+assembly — no LLM, no gate decisions. The ``InsightReportService`` subclass
+runs the cold-start gate and decides placeholder vs LLM; this module just reads
+the window's atoms (``PTGStore.recent_atoms`` with a ``[since, until)`` window,
+ADR-V6-016) and groups them. Window-agnostic — pass a 7-day span for a week, a
+1-day span for a day.
 
 The aggregation is type-aware across all eight Phase-1 atoms (R0/R1/R2/R3/R7
 from Phase 1a + R8/R9/R12 from Phase 1b-1): people, tasks, task outcomes,
@@ -31,19 +33,20 @@ _MAX_ENTITIES = 10
 _MAX_CONTEXT_LEN = 60  # truncate mention_context snippets so the prompt stays tight
 
 
-def aggregate_week(
+def aggregate_window(
     store: PTGStore,
     *,
     user_id: str,
     week_start: str,
     week_end: str,
 ) -> Dict[str, Any]:
-    """Assemble one week of atoms into the mirror-input dict.
+    """Assemble one time-window of atoms into the report-input dict.
 
     ``week_start``/``week_end`` are ISO-8601 strings defining the half-open
-    window ``[week_start, week_end)``. Reads only non-deleted atoms in window
-    (``recent_atoms`` respects soft-delete + the window). Never raises — a read
-    failure yields an empty aggregation so the service can still emit a
+    window ``[week_start, week_end)`` (param names kept for back-compat; the
+    window may be any span — a week, a day, etc.). Reads only non-deleted atoms
+    in window (``recent_atoms`` respects soft-delete + the window). Never raises
+    — a read failure yields an empty aggregation so the service can still emit a
     placeholder (C7).
     """
     try:
@@ -192,3 +195,8 @@ def _top_entities(atoms: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def _clip(text: str) -> str:
     text = (text or "").strip().replace("\n", " ")
     return text[:_MAX_CONTEXT_LEN] + ("…" if len(text) > _MAX_CONTEXT_LEN else "")
+
+
+# Back-compat alias: the function is window-agnostic but was originally named
+# for its first (weekly) caller. Kept so existing imports keep working.
+aggregate_week = aggregate_window
