@@ -22,14 +22,22 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 
+from .atomizer import Atomizer
+from .confidence import ConfidenceEngine
 from .store import PTGStore
 
 logger = logging.getLogger(__name__)
+
+# Caps concurrent background atomizations so a burst of turns can't fan out into
+# many simultaneous LLM calls. Single-founder desktop pace → 2 is ample; queued
+# atomizations run as slots free (the turn itself returns immediately).
+_ATOMIZE_CONCURRENCY = threading.Semaphore(2)
 
 
 PTG_SEARCH_SCHEMA = {
@@ -60,6 +68,13 @@ class PTGProvider(MemoryProvider):
         self._session_id = ""
         self._user_id = ""
         self._agent_context = "primary"
+        # Phase 1a heart (ADR-V6-011): per-turn HL-12 atomization. Built in
+        # initialize() once the store + founder are ready. ``atomize`` defaults
+        # True (the data brain must beat on every launch — same spirit as the
+        # ``memory.provider="ptg"`` default-activation guard); capture-focused
+        # tests pass a bare config with ``atomize: False`` to stay deterministic.
+        self._atomizer: Optional[Atomizer] = None
+        self._atomize_enabled = bool(self._config.get("atomize", True))
 
     # -- core lifecycle ---------------------------------------------------
 
@@ -100,6 +115,23 @@ class PTGProvider(MemoryProvider):
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("PTG ensure_founder failed: %s", exc)
+
+        # Phase 1a heart: build the Atomizer over the now-open store. The LLM
+        # caller + clock are the Atomizer's defaults (hermes call_llm + Beijing
+        # now); ``main_runtime`` stays None here — call_llm resolves the provider
+        # from config.yaml. Extraction never blocks sync_turn (it runs in a
+        # daemon thread) and never breaks the loop (fully fail-open, C7).
+        if self._atomize_enabled:
+            try:
+                self._atomizer = Atomizer(
+                    self._store,
+                    user_id=self._user_id,
+                    confidence_engine=ConfidenceEngine.from_ptg_config(self._config),
+                )
+            except Exception as exc:  # noqa: BLE001 — extraction is enrichment; never fatal
+                logger.warning("PTG Atomizer init failed; atomization disabled: %s", exc)
+                self._atomizer = None
+                self._atomize_enabled = False
 
     def _resolve_user_id(self, init_kwargs: dict) -> str:
         """Pick the tenant user_id for this desktop instance.
@@ -180,11 +212,16 @@ class PTGProvider(MemoryProvider):
         session_id: str = "",
         messages: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
-        """Capture the user's turn as a memo (流经即捕获).
+        """Capture the user's turn as a memo (流经即捕获) + atomize it (Phase 1a).
 
         The user message is the canonical capture surface. The assistant reply
         is recorded as the memo's summary so the turn pair is reconstructable.
         Empty / whitespace-only user turns are skipped (no asset, no noise).
+
+        After the memo lands, the Atomizer runs HL-12 extraction in a daemon
+        thread (turn → R-atoms → event tables), so atomization never blocks the
+        conversation and never breaks the loop (C7). Capture itself remains
+        synchronous: even if extraction is disabled or fails, the memo is safe.
         """
         if not self._store or not self._user_id:
             return
@@ -201,7 +238,7 @@ class PTGProvider(MemoryProvider):
         if a:
             summary = a[:500]
         try:
-            self._store.insert_memo(
+            memo_id = self._store.insert_memo(
                 user_id=self._user_id,
                 source_text=text,
                 input_mode="text",
@@ -209,6 +246,27 @@ class PTGProvider(MemoryProvider):
             )
         except Exception as exc:  # noqa: BLE001 — capture must never break the loop
             logger.warning("PTG sync_turn capture failed: %s", exc)
+            return
+        # Phase 1a heart: best-effort background atomization of the captured
+        # memo. Disabled in capture-focused tests via ``atomize: False``.
+        if self._atomize_enabled and self._atomizer is not None:
+            self._spawn_atomize(memo_id=memo_id, source_text=text)
+
+    def _spawn_atomize(self, *, memo_id: str, source_text: str) -> None:
+        """Run atomization off the conversation thread, fully fail-open (C7)."""
+        atomizer = self._atomizer
+        if atomizer is None:
+            return
+
+        def _run() -> None:
+            try:
+                with _ATOMIZE_CONCURRENCY:
+                    atomizer.atomize(
+                        memo_id=memo_id, source_text=source_text, input_mode="text")
+            except Exception as exc:  # noqa: BLE001 — observer surface: never escape
+                logger.warning("PTG background atomize failed for memo %s: %s", memo_id, exc)
+
+        threading.Thread(target=_run, name="ptg-atomize", daemon=True).start()
 
     # -- tools ------------------------------------------------------------
 
@@ -236,6 +294,10 @@ class PTGProvider(MemoryProvider):
     # -- shutdown ---------------------------------------------------------
 
     def shutdown(self) -> None:
+        # Stop scheduling new atomizations first; in-flight daemon threads are
+        # fail-open and die with the process.
+        self._atomizer = None
+        self._atomize_enabled = False
         if self._store is not None:
             try:
                 self._store.close()

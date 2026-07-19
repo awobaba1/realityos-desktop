@@ -549,6 +549,16 @@ prompt_caching:
 #                           # extra_body:
 #                           #   chat_template_kwargs:
 #                           #     enable_thinking: false
+#
+#   # RealityOS V6 Atomizer — HL-12 extraction (turn → R-atoms). ADR-V6-011.
+#   # Empty provider/model = inherit your main chat model (recommended). The
+#   # Atomizer runs in a background thread after each captured turn; this block
+#   # is optional — if absent, the main model is used. Disable atomization via
+#   # plugins.ptg.atomize: false.
+#   extraction:
+#     provider: "auto"
+#     model: ""
+#     timeout: 30
 
 # =============================================================================
 # Persistent Memory
