@@ -506,6 +506,38 @@ class PTGStore:
                            aggregation_type, period_key, exc)
         return ins_id
 
+    def get_insight(self, *, user_id: str, aggregation_type: str,
+                    period_key: str) -> Optional[Dict[str, Any]]:
+        """Read one cached insight row by (user, type, period_key), or None.
+
+        The scheduler (ADR-V6-019) uses this to decide whether a period's report
+        already exists (skip) before spending an LLM call. Respects soft-delete.
+        Never raises (C7).
+        """
+        try:
+            with self._lock:
+                row = self._conn.execute(
+                    """SELECT data_sufficiency, llm_call_id, version, created_at,
+                              result_data
+                       FROM insight_aggregation
+                       WHERE user_id = ? AND aggregation_type = ?
+                         AND period_key = ? AND deleted_at IS NULL""",
+                    (user_id, aggregation_type, period_key),
+                ).fetchone()
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("insight get failed (%s/%s): %s",
+                           aggregation_type, period_key, exc)
+            return None
+        if row is None:
+            return None
+        return {
+            "data_sufficiency": row["data_sufficiency"],
+            "llm_call_id": row["llm_call_id"],
+            "version": row["version"],
+            "created_at": row["created_at"],
+            "result_data": row["result_data"],
+        }
+
     def recent_quality_metrics(
         self,
         *,

@@ -57,8 +57,19 @@ __all__ = [
 
 
 def register(ctx) -> None:  # pragma: no cover — insights is called explicitly
-    """No-op registration. The report services are invoked explicitly (desktop
-    UI / scheduled job), mirroring the sovereignty plugin's Phase-1 surface."""
+    """Register the insights plugin + start the startup-lazy report scheduler.
+
+    Unlike ``realityos_sovereignty`` (whose services are strictly on-demand, so
+    its register is a no-op), insight reports must generate *automatically* —
+    so register also spawns a once-per-process daemon thread that, on launch,
+    generates any missing current-period reports (ADR-V6-019 startup-lazy,
+    mirroring backup's philosophy). The spawn is gated: disabled under pytest
+    and via ``REALITYOS_INSIGHTS_AUTOSCHED=0``; fail-open; never blocks startup.
+    The services themselves remain directly callable for manual/UI regeneration.
+    """
+    from .scheduling import _scheduler_should_start, start_scheduler_if_due
+    started = start_scheduler_if_due(enabled=_scheduler_should_start())
     logger.debug(
         "realityos_insights registered (weekly mirror + daily report services "
-        "live; desktop/cron wiring is the documented next step)")
+        "live; startup-lazy scheduler %s)",
+        "started" if started else "not started (disabled / already running)")
