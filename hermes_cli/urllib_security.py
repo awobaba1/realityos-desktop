@@ -14,6 +14,7 @@ _CROSS_ORIGIN_SAFE_HEADERS = frozenset({"accept", "user-agent"})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
+
 def url_origin(url: str) -> tuple[str, str, int | None]:
     """Return a normalized (scheme, hostname, effective port) origin."""
     parsed = urllib.parse.urlparse(url)

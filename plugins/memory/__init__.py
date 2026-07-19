@@ -38,6 +38,33 @@ _MEMORY_PLUGINS_DIR = Path(__file__).parent
 # collide with bundled providers in sys.modules.
 _USER_NAMESPACE = "_hermes_user_memory"
 
+# RealityOS V6 (ADR-V6-025): data-sovereignty dormant guard. V6's promise is
+# zero-server / local-only — user text (PIPL L3) never leaves the device via a
+# memory provider. These are the external SaaS memory backends hermes supports
+# in general; each ships user memory off-device to a third-party host. They
+# MUST stay dormant in V6: activating one would silently exfiltrate the very
+# data the product promises to keep local. The guard refuses to load any of
+# them and logs loudly; the caller falls back to the local ptg provider (or
+# the built-in curated memory), preserving sovereignty. A user who truly needs
+# one can still set HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY=1 to opt out (and
+# assume the sovereignty risk).
+_V6_EXTERNAL_MEMORY_BLOCKLIST = frozenset({
+    "honcho",       # app.honcho.dev
+    "hindsight",    # hindsight.vectorize.io
+    "mem0",
+    "openviking",
+    "holographic",
+    "retaindb",
+    "byterover",
+})
+
+
+def _external_memory_allowed() -> bool:
+    """Escape hatch for the V6 sovereignty guard (default: blocked)."""
+    import os
+    return os.environ.get("HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY", "") in {"1", "true", "yes"}
+
+
 
 def _register_synthetic_package(name: str, search_locations: List[str]) -> None:
     """Register an empty package shell in sys.modules.
@@ -200,6 +227,20 @@ def load_memory_provider(name: str) -> Optional["MemoryProvider"]:
 
     Returns None if the provider is not found or fails to load.
     """
+    # RealityOS V6 (ADR-V6-025): sovereignty dormant guard. Refuse to load
+    # any external SaaS memory provider — it would ship user data off-device,
+    # breaking the zero-server promise. Fail-open to the local fallback
+    # (caller handles None → ptg / built-in curated memory).
+    if name in _V6_EXTERNAL_MEMORY_BLOCKLIST and not _external_memory_allowed():
+        logger.warning(
+            "realityos sovereignty: external memory provider '%s' is dormant in "
+            "V6 — it would send user data to a third-party host. Falling back to "
+            "the local provider. Set HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY=1 to "
+            "override (you assume the data-sovereignty risk).",
+            name,
+        )
+        return None
+
     provider_dir = find_provider_dir(name)
     if not provider_dir:
         logger.debug("Memory provider '%s' not found in bundled or user plugins", name)

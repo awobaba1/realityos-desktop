@@ -44,6 +44,49 @@ _REGISTRY: dict[str, ProviderProfile] = {}
 _ALIASES: dict[str, str] = {}
 _discovered = False
 
+# RealityOS V6 (ADR-V6-025): hosts we've already warned about for §6.6 egress.
+# The audit is fail-open (warn + proceed) so a user-configured provider still
+# works, but a PUBLIC non-allowlisted LLM host — which would carry user text
+# (PIPL L3) off-device to an un-vetted third party — is surfaced loudly, once
+# per host, so the sovereignty promise is auditable rather than silent.
+# Loopback/private hosts (local model servers like ollama) are SILENT: they are
+# the MOST sovereign option (data never leaves the device), so warning on them
+# would be wrong. Only classify_url == tool_fetch (public, non-allowlist) warns.
+_llm_egress_warned_hosts: set[str] = set()
+
+
+def _realityos_assert_llm_egress(profile: ProviderProfile) -> None:
+    """§6.6 sovereignty audit (ADR-V6-025). Warn once per host when a
+    provider's base_url is a PUBLIC host NOT on the sole-egress allowlist.
+    Silent for loopback/private (local providers — most sovereign) and for
+    allowlisted hosts. Fail-open: never blocks, never raises."""
+    base_url = (getattr(profile, "base_url", "") or "").strip()
+    if not base_url:
+        return
+    try:
+        from plugins.realityos_security.policy import (
+            CAT_TOOL_FETCH,
+            _hostname,
+            classify_url,
+        )
+    except Exception:  # noqa: BLE001 — sovereignty audit must never break lookups
+        return
+    if classify_url(base_url) != CAT_TOOL_FETCH:
+        return  # llm_provider (allowlisted) or blocked_internal (loopback/local)
+    host = _hostname(base_url)
+    if not host or host in _llm_egress_warned_hosts:
+        return
+    _llm_egress_warned_hosts.add(host)
+    logger.warning(
+        "realityos sovereignty (§6.6): LLM provider '%s' base_url host '%s' is "
+        "a PUBLIC host NOT on the sole-egress allowlist — user text will leave "
+        "the device via an un-vetted third party. Proceeding (fail-open); add "
+        "the host to realityos_security.llm_provider_allowlist if intended, or "
+        "point at a local provider (loopback) for full data sovereignty.",
+        profile.name, host,
+    )
+
+
 # Repo-root ``plugins/model-providers/`` — populated at discovery time.
 _BUNDLED_PLUGINS_DIR = (
     Path(__file__).resolve().parent.parent / "plugins" / "model-providers"
@@ -70,7 +113,11 @@ def get_provider_profile(name: str) -> ProviderProfile | None:
     if not _discovered:
         _discover_providers()
     canonical = _ALIASES.get(name, name)
-    return _REGISTRY.get(canonical)
+    profile = _REGISTRY.get(canonical)
+    if profile is not None:
+        # RealityOS V6 (ADR-V6-025): §6.6 egress audit (warn-once, fail-open).
+        _realityos_assert_llm_egress(profile)
+    return profile
 
 
 def list_providers() -> list[ProviderProfile]:
