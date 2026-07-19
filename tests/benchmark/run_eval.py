@@ -130,7 +130,11 @@ def evaluate_sample(predicted_atoms: list[dict], expected: dict) -> dict:
     true_positives = len(matched_pred)
     false_positives = len(pred_atoms) - true_positives
     false_negatives = len(exp_atoms) - true_positives
-    # FP/FN atom dicts (for --dump-fp root-cause diagnosis, ADR-V6-012 ⑦).
+    # TP/FP/FN atom dicts (for --dump-fp root-cause diagnosis + confidence-
+    # separability analysis, ADR-V6-012 ⑦). tp_atoms carry confidence so we can
+    # plot TP-vs-FP confidence distributions and find a per-type threshold that
+    # filters FPs without sinking recall (the correct path to close ⑦).
+    tp_atoms = [pred_atoms[pi] for pi in range(len(pred_atoms)) if pi in matched_pred]
     fp_atoms = [pred_atoms[pi] for pi in range(len(pred_atoms)) if pi not in matched_pred]
     fn_atoms = [exp_atoms[i] for i in range(len(exp_atoms)) if i not in matched_expected]
 
@@ -147,7 +151,7 @@ def evaluate_sample(predicted_atoms: list[dict], expected: dict) -> dict:
         type_stats[atom_type] = {"expected": len(type_exp), "predicted": len(type_pred),
                                  "matched": len(matched)}
     return {"tp": true_positives, "fp": false_positives, "fn": false_negatives,
-            "fp_atoms": fp_atoms, "fn_atoms": fn_atoms,
+            "tp_atoms": tp_atoms, "fp_atoms": fp_atoms, "fn_atoms": fn_atoms,
             "type_stats": type_stats}
 
 
@@ -182,10 +186,13 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
             return sid, None, "atomize failed (see DLQ)", None
         predicted = store.recent_atoms(user_id="eval-user", memo_id=memo_id)
         res = evaluate_sample(predicted, sample["expected_output"])
-        if dump_fp and (res["fp_atoms"] or res["fn_atoms"]):
+        if dump_fp:
+            # Dump EVERY sample (tp+fp+fn atoms) so the confidence-separability
+            # analysis has the full TP distribution, not just error samples.
             fpfn_records.append({
                 "id": sid, "input_text": sample["input_text"],
-                "fp_atoms": res["fp_atoms"], "fn_atoms": res["fn_atoms"],
+                "tp_atoms": res["tp_atoms"], "fp_atoms": res["fp_atoms"],
+                "fn_atoms": res["fn_atoms"],
             })
         return sid, res, None, sample["input_text"]
 
@@ -264,7 +271,7 @@ def run_evaluation(*, api_key: str, base_url: str, model: str, provider: str,
         with open(dump_fp, "w", encoding="utf-8") as f:
             for rec in fpfn_records:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        print(f"FP/FN dump written: {dump_fp} ({len(fpfn_records)} samples with errors)")
+        print(f"TP/FP/FN dump written: {dump_fp} ({len(fpfn_records)} samples)")
     return report
 
 

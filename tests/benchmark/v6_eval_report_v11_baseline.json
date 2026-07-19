@@ -1,0 +1,48 @@
+{
+  "model": "deepseek-chat",
+  "provider": "deepseek",
+  "samples": 200,
+  "errors": 0,
+  "precision": 0.630801687763713,
+  "recall": 0.8846153846153846,
+  "f1": 0.7364532019704433,
+  "per_type": {
+    "R3_Person": {
+      "expected": 122,
+      "predicted": 127,
+      "matched": 109,
+      "precision": 0.8582677165354331,
+      "recall": 0.8934426229508197,
+      "target": 0.85,
+      "pass": true
+    },
+    "R2_Task": {
+      "expected": 93,
+      "predicted": 139,
+      "matched": 84,
+      "precision": 0.60431654676259,
+      "recall": 0.9032258064516129,
+      "target": 0.8,
+      "pass": true
+    },
+    "R1_SelfState": {
+      "expected": 79,
+      "predicted": 126,
+      "matched": 70,
+      "precision": 0.5555555555555556,
+      "recall": 0.8860759493670886,
+      "target": 0.7,
+      "pass": true
+    },
+    "R7_Expression": {
+      "expected": 44,
+      "predicted": 49,
+      "matched": 36,
+      "precision": 0.7346938775510204,
+      "recall": 0.8181818181818182,
+      "target": 0.6,
+      "pass": true
+    }
+  },
+  "gate_all_green": true
+}
