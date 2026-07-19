@@ -933,6 +933,17 @@ class DingTalkAdapter(BasePlatformAdapter):
             logger.error("[%s] Send error: %s", self.name, e)
             return SendResult(success=False, error=str(e))
 
+    # ADR-V6-034 (action 19) — outbound voice / native media limitation:
+    # DingTalk's session-webhook reply API supports ONLY text/markdown payloads
+    # (see send_image / send_image_file below). It cannot deliver voice or local
+    # file attachments, so this adapter INTENTIONALLY does NOT override
+    # ``send_voice`` — it inherits ``BasePlatformAdapter.send_voice``, which logs
+    # a warning and sends the friendly "⚠️ Couldn't deliver the audio
+    # attachment." notice (never echoes the host-local audio_path). Native voice
+    # would require the DingTalk OpenAPI media-upload SDK (a separate integration,
+    # unverifiable without live credentials = 桶 D) and is tracked as a known
+    # platform-API limitation in ADR-V6-034, NOT a bug. The capability matrix is
+    # pinned in tests/gateway/test_six_channel_acceptance.py::TestOutboundVoiceCapability.
     async def send_typing(self, chat_id: str, metadata=None) -> None:
         """DingTalk does not support typing indicators."""
         pass

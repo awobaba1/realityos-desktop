@@ -94,3 +94,89 @@ class TestFeishuConnectForm:
         plugin_yaml = Path(next(iter(spec.submodule_search_locations))) / "plugin.yaml"
         text = plugin_yaml.read_text(encoding="utf-8")
         assert "FEISHU_APP_ID" in text and "FEISHU_APP_SECRET" in text
+
+
+class TestOutboundVoiceCapability:
+    """ADR-V6-034 (action 19): the outbound-voice capability matrix across the 6
+    core channels, made VISIBLE + tracked (anti-fake-green).
+
+    Empirically 5 of 6 override ``BasePlatformAdapter.send_voice`` with a real
+    native implementation (telegram voice bubble / discord+slack file upload /
+    whatsapp bridge audio / feishu audio attachment). Only **dingtalk** does NOT
+    — its session-webhook API supports text/markdown only (no voice/file), so it
+    INTENTIONALLY falls through to the base ``send_voice`` fallback notice. That
+    is an honest, documented platform-API limitation, NOT a missing feature or a
+    bug. (The audit ADR-V6-022 lens 10 / §2.1 pessimism assumed fewer; this pins
+    the true matrix.)
+
+    ``yuanbao`` also lacks ``send_voice`` but is a legacy non-core adapter
+    (``gateway/platforms/``, not in the 6-channel acceptance set) — out of scope
+    here; tracked in ADR-V6-034 as a known low-priority gap. Implementing
+    dingtalk/yuanbao voice now would require an unverifiable OpenAPI/SDK
+    integration (no live creds = 桶 D) — writing such code would itself be
+    fake-green, so this ADR makes the gap visible instead.
+    """
+
+    def _adapter_cls(self, channel: str):
+        # The concrete BasePlatformAdapter subclass DEFINED in the channel's
+        # adapter module (the __module__ filter excludes imported base/helpers).
+        from gateway.platforms.base import BasePlatformAdapter
+
+        modname = f"plugins.platforms.{channel}.adapter"
+        mod = importlib.import_module(modname)
+        candidates = [
+            obj for obj in vars(mod).values()
+            if isinstance(obj, type)
+            and obj.__module__ == modname
+            and issubclass(obj, BasePlatformAdapter)
+            and obj is not BasePlatformAdapter
+        ]
+        assert candidates, f"no adapter class defined in {modname}"
+        if len(candidates) > 1:
+            # Disambiguate by name (channel token in the class name).
+            matches = [c for c in candidates if channel.lower().replace("_", "") in c.__name__.lower()]
+            assert matches, f"could not pick adapter among {[c.__name__ for c in candidates]} in {modname}"
+            return matches[0]
+        return candidates[0]
+
+    def test_five_of_six_core_channels_have_native_send_voice(self):
+        from gateway.platforms.base import BasePlatformAdapter
+
+        voice_capable = []
+        for ch in SIX_CHANNELS:
+            cls = self._adapter_cls(ch)
+            if cls.send_voice is not BasePlatformAdapter.send_voice:
+                voice_capable.append(ch)
+        # The 5 with real native voice. If a channel adds/drops voice support,
+        # this assertion goes red — a deliberate, reviewed matrix change.
+        assert set(voice_capable) == {"telegram", "discord", "slack", "whatsapp", "feishu"}, (
+            f"outbound-voice matrix drift; voice-capable={sorted(voice_capable)}"
+        )
+
+    def test_dingtalk_lacks_send_voice_intentionally_webhook_limited(self):
+        # dingtalk session-webhook = text/markdown only (no voice/file). The base
+        # fallback ("⚠️ Couldn't deliver the audio attachment.") is the CORRECT
+        # graceful degradation, not a gap to silently fill. Pinned so a future
+        # naive `send_voice` override that doesn't actually work can't sneak in.
+        from gateway.platforms.base import BasePlatformAdapter
+
+        cls = self._adapter_cls("dingtalk")
+        assert cls.send_voice is BasePlatformAdapter.send_voice, (
+            "dingtalk send_voice should inherit the base fallback — its session-webhook "
+            "API supports text/markdown only; a naive override without the OpenAPI media "
+            "SDK would be unverifiable fake-green (ADR-V6-034)"
+        )
+
+    def test_base_send_voice_fallback_is_honest(self):
+        # The inherited fallback must NEVER leak the host-local audio_path into
+        # chat (filesystem-layout leak) and must send a friendly notice (C7: no
+        # silent failure — the user is told the audio wasn't delivered).
+        import inspect
+
+        from gateway.platforms.base import BasePlatformAdapter
+
+        src = inspect.getsource(BasePlatformAdapter.send_voice)
+        assert "Couldn't deliver the audio" in src, "base fallback must send a friendly notice"
+        assert "audio_path is intentionally NOT included" in src or "NOT included" in src, (
+            "base fallback must document it does NOT echo the host-local audio_path"
+        )
