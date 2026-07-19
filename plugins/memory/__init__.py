@@ -49,13 +49,19 @@ _USER_NAMESPACE = "_hermes_user_memory"
 # one can still set HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY=1 to opt out (and
 # assume the sovereignty risk).
 _V6_EXTERNAL_MEMORY_BLOCKLIST = frozenset({
-    "honcho",       # app.honcho.dev
-    "hindsight",    # hindsight.vectorize.io
-    "mem0",
-    "openviking",
-    "holographic",
-    "retaindb",
-    "byterover",
+    # Empirically grounded (ADR-V6-025): each entry was verified against its
+    # bundled plugin source to genuinely ship user memory to a THIRD-PARTY
+    # CLOUD host — the sovereignty exfiltration risk. Local stores that never
+    # leave the device are deliberately NOT here: ``holographic`` is a local
+    # SQLite fact store, ``openviking`` defaults to a localhost server, and
+    # ``byterover`` defaults to a local binary — all sovereign by default, so
+    # blocking them would overreach this guard (and ``holographic`` is the
+    # canonical memory-provider test fixture).
+    "honcho",       # app.honcho.dev — HONCHO_API_KEY, cloud host (Plurality)
+    "hindsight",    # api.hindsight.vectorize.io — HINDSIGHT_API_KEY cloud
+    "mem0",         # mem0.ai — MemoryClient(api_key) cloud
+    "retaindb",     # api.retaindb.com — RETAINDB_API_KEY cloud
+    "supermemory",  # api.supermemory.ai — cloud conversations API
 })
 
 
