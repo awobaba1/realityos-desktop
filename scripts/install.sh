@@ -2964,6 +2964,35 @@ require_install_dir() {
 
 # Desktop bootstrap stage protocol. Mirrors the Windows install.ps1 surface
 # closely enough for the Electron bootstrap runner to show structured progress.
+prefetch_stt_model() {
+    # ADR-V6-031 (opt-in stage): pre-download the local STT model (faster-whisper
+    # base, ~150MB) + the heavy stt.faster_whisper extra at the user's request,
+    # instead of a surprise download on first transcription. Best-effort /
+    # fail-open (C7): the Python helper exits 0 with an explicit stderr note on
+    # any failure, and the transcription path lazy-loads on first use as the
+    # guaranteed fallback. NOT in the default manifest run-sequence — call
+    # explicitly via `hermes install --stage stt-model`. Default install is
+    # unchanged (no extra ~500MB of optional STT deps).
+    log_info "Pre-fetching local STT model (faster-whisper base, ~150MB) — opt-in stage..."
+    local py="$INSTALL_DIR/.venv/bin/python"
+    if [ ! -x "$py" ]; then
+        py="$(command -v python3 || command -v python || true)"
+    fi
+    if [ -z "$py" ] || [ ! -x "$py" ]; then
+        log_warn "STT model pre-fetch skipped: no python found. First transcription will lazy-download ~150MB."
+        return 0
+    fi
+    if [ ! -f "$INSTALL_DIR/scripts/prefetch_stt_model.py" ]; then
+        log_warn "STT model pre-fetch skipped: helper script not found at $INSTALL_DIR/scripts/prefetch_stt_model.py."
+        return 0
+    fi
+    # Belt-and-suspenders: the Python helper already fail-opens (exit 0 + stderr
+    # note). The `|| log_warn` only fires if the interpreter itself fails to start.
+    "$py" "$INSTALL_DIR/scripts/prefetch_stt_model.py" || \
+        log_warn "STT model pre-fetch did not complete; first transcription will lazy-download ~150MB."
+    return 0
+}
+
 run_stage_body() {
     local stage="$1"
 
@@ -3042,6 +3071,15 @@ run_stage_body() {
             # so install_desktop can find npm instead of silently skipping.
             check_node
             install_desktop
+            ;;
+        stt-model)
+            # ADR-V6-031: opt-in stage. Pre-fetch the local STT model. Best-effort
+            # (prefetch_stt_model always returns 0 — C7 fail-open with lazy-load
+            # fallback). Not in the default manifest run-sequence.
+            detect_os
+            resolve_install_layout
+            require_install_dir
+            prefetch_stt_model
             ;;
         complete)
             detect_os

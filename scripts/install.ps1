@@ -3453,10 +3453,57 @@ function Stage-PlatformSdks     { Resolve-UvCmd; Install-PlatformSdks }
 function Stage-BootstrapMarker  { Write-BootstrapMarker }
 function Stage-Configure        { Invoke-SetupWizard }
 function Stage-Gateway          { Start-GatewayIfConfigured }
+function Stage-SttModel {
+    # ADR-V6-031 (opt-in stage): pre-download the local STT model (faster-whisper
+    # base, ~150MB) + the heavy stt.faster_whisper extra at the user's request,
+    # instead of a surprise download on first transcription. Best-effort /
+    # fail-open (C7): the Python helper exits 0 with an explicit stderr note on
+    # any failure, and the transcription path lazy-loads on first use as the
+    # guaranteed fallback. NOT in the default manifest run-sequence -- call
+    # explicitly via `install.ps1 -Stage stt-model`. Default install is unchanged.
+    try {
+        $py = Join-Path $InstallDir "venv\Scripts\python.exe"
+        if (-not (Test-Path $py)) {
+            $found = Get-Command python -ErrorAction SilentlyContinue
+            if ($found) { $py = $found.Source }
+        }
+        if (-not $py -or -not (Test-Path $py)) {
+            Write-Warning "STT model pre-fetch skipped: no python found. First transcription will lazy-download ~150MB."
+            return
+        }
+        $helper = Join-Path $InstallDir "scripts\prefetch_stt_model.py"
+        if (-not (Test-Path $helper)) {
+            Write-Warning "STT model pre-fetch skipped: helper script not found at $helper."
+            return
+        }
+        # Belt-and-suspenders: the Python helper already fail-opens (exit 0 +
+        # stderr note). The warning below only fires on a non-zero interpreter exit.
+        & $py $helper
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "STT model pre-fetch did not complete; first transcription will lazy-download ~150MB."
+        }
+    } catch {
+        Write-Warning "STT model pre-fetch did not complete ($_); first transcription will lazy-download ~150MB."
+    }
+}
+
+# ADR-V6-031: opt-in stages. Resolvable via `-Stage NAME` (Get-InstallStage
+# checks this after $InstallStages) but deliberately NOT appended to
+# $InstallStages, so they are absent from `-Manifest` output and the default
+# Invoke-AllStages run-sequence. Adding an opt-in stage never changes the
+# default install footprint.
+$OptInStages = @(
+    @{ Name = "stt-model"; Title = "Pre-fetching local STT model (~150MB)"; Category = "install"; NeedsUserInput = $false; Worker = "Stage-SttModel" }
+)
 
 function Get-InstallStage {
     param([string]$Name)
     foreach ($s in $InstallStages) {
+        if ($s.Name -eq $Name) { return $s }
+    }
+    # ADR-V6-031: opt-in stages are dispatchable via `-Stage NAME` but NOT in
+    # $InstallStages, so they never appear in the manifest / default run-sequence.
+    foreach ($s in $OptInStages) {
         if ($s.Name -eq $Name) { return $s }
     }
     return $null
