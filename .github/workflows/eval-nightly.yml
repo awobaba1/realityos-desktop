@@ -1,0 +1,81 @@
+name: Eval Nightly (recall gate)
+
+# ADR-V6-030 (fixes ADR-V6-022 B9: "CI 关键路径全 mock + run_eval 不进 CI").
+# A nightly lane that runs the REAL DeepSeek-backed extraction eval and fails CI
+# on a RECALL regression. Precision is never gated (ADR-V6-026 deferred_structural).
+#
+# Triggers: nightly cron + manual workflow_dispatch. NOT a PR gate — run_eval
+# costs real LLM calls, so it is observability, not a per-PR check.
+#
+# 桶D boundary: the lane is DORMANT (exit 0 + ::notice::, NOT green-faking) until
+# the DEEPSEEK_API_KEY Actions secret is added to this repo. The dormancy is
+# logged transparently. Once armed, it runs the recall gate and exits 1 on RED.
+
+on:
+  schedule:
+    # 16:17 UTC ≈ 00:17 Beijing — off-minute to dodge the :00 fleet stampede.
+    - cron: '17 16 * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Sample cap (default 30 for nightly; full 200 for a manual deep run)'
+        required: false
+        default: '30'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    name: Recall gate (real DeepSeek)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # 8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        uses: ./.github/actions/retry
+        with:
+          command: uv sync --locked --python 3.11 --extra all --extra dev
+
+      - name: Run eval (recall gate; dormant without DEEPSEEK_API_KEY)
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          LIMIT: ${{ github.event.inputs.limit || '30' }}
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          if [ -z "$DEEPSEEK_API_KEY" ]; then
+            echo "::notice::ADR-V6-030 eval lane DORMANT — DEEPSEEK_API_KEY Actions secret not set (桶D). Add it (Settings → Secrets and variables → Actions) to arm the nightly recall gate. Exit 0 = dormant, NOT green-faking (the skip is logged here)."
+            exit 0
+          fi
+          # Real eval: recall gate. --ci-gate exits 1 on RED (ADR-V6-030).
+          # Precision is REPORTED but never gated (ADR-V6-026 deferred_structural).
+          python -m tests.benchmark.run_eval \
+            --limit "$LIMIT" --workers 8 --ci-gate --out eval-report.json
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eval-report
+          path: eval-report.json
+          if-no-files-found: ignore
+          retention-days: 30

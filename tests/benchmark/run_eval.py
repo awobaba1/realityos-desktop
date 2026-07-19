@@ -364,6 +364,19 @@ def _record_report_to_quality_metrics(report: dict, ptg_db: str,
         print(f"WARNING: quality_metrics record skipped (non-fatal): {exc}")
 
 
+def ci_gate_exit_code(report: dict) -> int:
+    """ADR-V6-030: map an eval report to a CI exit code.
+
+    Returns 0 when the **recall** gate is green, 1 when it is red. Precision is
+    NEVER gated (ADR-V6-026 ``deferred_structural`` — the ~70% ceiling is a
+    structural ⑦ limit, not a regression), so a low precision number alone does
+    NOT flip this red. This is the single hook the nightly eval lane
+    (``eval-nightly.yml``) uses to fail CI on a recall regression — extracted to
+    a pure function so the contract is regression-tested without an LLM call.
+    """
+    return 0 if report.get("gate_all_green") else 1
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Run the V6 HL-12 extraction benchmark")
     ap.add_argument("--limit", type=int, default=None)
@@ -384,9 +397,14 @@ if __name__ == "__main__":
                          "eval itself still runs in a throwaway temp store.")
     ap.add_argument("--ptg-user-id", type=str, default="founder",
                     help="user_id for quality_metrics rows (default: founder)")
+    ap.add_argument("--ci-gate", action="store_true",
+                    help="ADR-V6-030: exit non-zero if the RECALL gate is RED (CI wiring). "
+                         "Precision is never gated (ADR-V6-026 deferred_structural).")
     args = ap.parse_args()
     key, base = _resolve_creds(args.api_key, args.base_url)
-    run_evaluation(api_key=key, base_url=base, model=args.model, provider=args.provider,
-                   limit=args.limit, workers=args.workers, out=args.out,
-                   dump_fp=args.dump_fp, ptg_db=args.ptg_db, user_id=args.ptg_user_id,
-                   samples_file=args.samples)
+    report = run_evaluation(api_key=key, base_url=base, model=args.model, provider=args.provider,
+                            limit=args.limit, workers=args.workers, out=args.out,
+                            dump_fp=args.dump_fp, ptg_db=args.ptg_db, user_id=args.ptg_user_id,
+                            samples_file=args.samples)
+    if args.ci_gate:
+        sys.exit(ci_gate_exit_code(report))
