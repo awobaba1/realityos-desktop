@@ -4,6 +4,7 @@ import type { CSSProperties, ReactElement, PointerEvent as ReactPointerEvent } f
 
 import { PREVIEW_RAIL_MAX_WIDTH, PREVIEW_RAIL_MIN_WIDTH } from '@/app/chat/right-rail'
 import { PALETTE_AREA, type PaletteContribution } from '@/app/command-palette/contrib'
+import { InsightsPage } from '@/app/insights/InsightsPage'
 import { type StatusbarItem } from '@/app/shell/statusbar-controls'
 import { toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
 import { allPaneIds, group, split } from '@/components/pane-shell/tree/model'
@@ -62,7 +63,7 @@ import {
   WorkspaceTabMenu
 } from '../chat/session-tile'
 import { $terminalTakeover, setTerminalTakeover } from '../right-sidebar/store'
-import { $workspaceIsPage } from '../routes'
+import { $workspaceIsPage, ROUTES_AREA, SIDEBAR_NAV_AREA } from '../routes'
 
 import { FilesPane, LogsPane, PreviewRailPane, ReviewPaneContent } from './panes'
 import { ContribWiring, WiredPane } from './wiring'
@@ -372,6 +373,29 @@ registry.registerMany([
   { id: 'focus', area: 'layouts', title: 'Focus', order: 10, data: FOCUS_TREE },
   { id: 'terminal-deck', area: 'layouts', title: 'Terminal deck', order: 20, data: TERMINAL_TREE },
   { id: 'quad', area: 'layouts', title: 'Quad', order: 30, data: QUAD_TREE }
+])
+
+// Insight reports (PRD #4 weekly mirror + #2 daily report, ADR-V6-020): a core
+// full page at /insights + the sidebar row that opens it. The page reads
+// insight_aggregation via /api/insights/*; the sidebar row lights up at the
+// route. Label is Chinese-first (founder product); the page-internal copy is
+// i18n'd via the `insights` section.
+registry.registerMany([
+  {
+    id: 'insights-page',
+    area: ROUTES_AREA,
+    source: 'core',
+    title: '洞察',
+    data: { path: '/insights' },
+    render: () => <InsightsPage />
+  },
+  {
+    id: 'insights-nav',
+    area: SIDEBAR_NAV_AREA,
+    source: 'core',
+    order: 35,
+    data: { codicon: 'compendium', label: '洞察', path: '/insights' }
+  }
 ])
 
 declareDefaultTree(DEFAULT_TREE)

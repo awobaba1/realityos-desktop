@@ -1037,6 +1037,34 @@ export interface MemoryStatusResponse {
   builtin_files: { memory: number; user: number }
 }
 
+/** `GET /api/insights/{weekly-mirror,daily-report}` — one insight report read
+ *  (ADR-V6-020). Cache-first; `?force=true` regenerates. The report body is
+ *  markdown text in `content` (the desktop's markdown-content model, not the
+ *  structured JSON the legacy mobile app consumed). */
+export type InsightReportKind = 'weekly-mirror' | 'daily-report'
+export type InsightReportStatus = 'mirror' | 'report' | 'placeholder' | 'no_data' | 'error'
+export type InsightDataSufficiency = 'sufficient' | 'partial' | 'insufficient' | null
+
+export interface InsightReportResponse {
+  kind: InsightReportKind
+  status: InsightReportStatus
+  /** 'YYYY-MM-DD' — week_start (Monday) for weekly, the day for daily. */
+  period_key: string | null
+  /** Friendly display span (Beijing-local). */
+  period_start: string | null
+  period_end: string | null
+  data_sufficiency: InsightDataSufficiency
+  /** Markdown report body (or the warm guidance text when status='placeholder'). */
+  content: string | null
+  version: number | null
+  generated_by: 'scheduled' | 'manual' | 'on_demand' | null
+  llm_call_id: string | null
+  created_at: string | null
+  confidence: number | null
+  /** Human message for the no_data / error states. */
+  message?: string | null
+}
+
 /** `GET /api/curator` — background skill-curator status. */
 export interface CuratorStatusResponse {
   enabled: boolean

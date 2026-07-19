@@ -12100,6 +12100,170 @@ async def reset_memory(body: MemoryReset):
 
 
 # ---------------------------------------------------------------------------
+# Insight report reads — weekly mirror (PRD #4) + daily report (PRD #2).
+# Cache-first read of insight_aggregation; ?force=true regenerates via the
+# service (one LLM call, C5/C6/C7 — fail-open to placeholder). ADR-V6-020.
+#
+
+
+def _open_ptg_store_for_insights():
+    """Open the shared PTGStore handle for an insight read/regenerate.
+
+    Refcounted (ADR-V6-008): ``close()`` only decrements, so a request opening
+    + closing its own handle never tears down the provider's connection.
+    Factored out so tests can monkeypatch it to a temp store.
+    """
+    from plugins.memory.ptg.store import PTGStore, load_ptg_config, resolve_db_path
+
+    return PTGStore(db_path=resolve_db_path(load_ptg_config()))
+
+
+def _resolve_insight_founder(store) -> str:
+    """Resolve the founder user_id for this desktop instance.
+
+    Mirrors PTGProvider._resolve_user_id priority (provider.py) minus the
+    gateway-kwarg path (a stateless HTTP read has no gateway user context):
+    explicit ptg config ``founder_user_id`` > persisted ptg_meta value.
+    Returns "" when no founder is established yet (first-launch race).
+    """
+    from plugins.memory.ptg.store import load_ptg_config
+
+    cfg_id = (load_ptg_config() or {}).get("founder_user_id")
+    if cfg_id:
+        return str(cfg_id)
+    uid = store.founder_user_id()
+    return uid or ""
+
+
+# kind -> (service class, period resolver, aggregation_type, report status)
+def _insight_kind_config():
+    from plugins.realityos_insights.daily_report import DailyReportService, _resolve_day
+    from plugins.realityos_insights.weekly_mirror import (
+        WeeklyMirrorService,
+        _resolve_week,
+    )
+
+    return {
+        "weekly-mirror": (WeeklyMirrorService, _resolve_week, "weekly_mirror", "mirror"),
+        "daily-report": (DailyReportService, _resolve_day, "daily_report", "report"),
+    }
+
+
+def _period_display(period: dict, kind: str) -> tuple[str, str]:
+    """Friendly (start, end) display strings for a resolved period."""
+    if kind == "weekly-mirror":
+        return period.get("week_start_display", ""), period.get("week_end_display", "")
+    return period.get("start_display", ""), period.get("end_display", "")
+
+
+def _serialize_insight(kind: str, row: dict, period: dict) -> dict:
+    """Serialize one cached insight row for the UI (markdown-content model)."""
+    _, _, _, report_status = _insight_kind_config()[kind]
+    suff = row.get("data_sufficiency")
+    status = "placeholder" if suff == "insufficient" else report_status
+    start_d, end_d = _period_display(period, kind)
+    return {
+        "kind": kind,
+        "status": status,
+        "period_key": period.get("period_key"),
+        "period_start": start_d,
+        "period_end": end_d,
+        "data_sufficiency": suff,
+        "content": row.get("result_data"),
+        "version": row.get("version"),
+        "generated_by": row.get("generated_by"),
+        "llm_call_id": row.get("llm_call_id"),
+        "created_at": row.get("created_at"),
+        "confidence": row.get("confidence"),
+    }
+
+
+def _read_or_generate_insight(
+    kind: str, store, user_id: str, *, date_str: str | None = None,
+    force: bool = False, caller=None,
+) -> dict:
+    """Cache-first read of one insight report; regenerate when ``force``.
+
+    Pure over (store, user_id): the HTTP routes resolve the store + founder,
+    then call this. Tests call it directly with a temp store + mock caller.
+    Never raises (C7): returns a ``{"status": "no_data"|"error", ...}`` payload.
+    """
+    try:
+        svc_cls, resolver, agg_type, _ = _insight_kind_config()[kind]
+        from plugins.realityos_insights._base import beijing_now
+
+        now = beijing_now()
+        period = resolver(now, date_str or None)
+        period_key = period["period_key"]
+        if force:
+            # Pass the explicit period so generate() writes under the SAME
+            # period_key we just probed (and will read). Without this the
+            # service re-derives the period from now_fn and — for an explicit
+            # date_str — upserts a different key than the one we read. Same
+            # class of bug the scheduler's now_fn injection fixed (ADR-V6-019).
+            svc = svc_cls(store, user_id=user_id, caller=caller, now_fn=lambda: now)
+            if kind == "weekly-mirror":
+                svc.generate(week_start=date_str or None, generated_by="manual")
+            else:
+                svc.generate(day=date_str or None, generated_by="manual")
+        row = store.get_insight(
+            user_id=user_id, aggregation_type=agg_type, period_key=period_key)
+        if row is None:
+            return {
+                "kind": kind, "status": "no_data", "period_key": period_key,
+                "period_start": _period_display(period, kind)[0],
+                "period_end": _period_display(period, kind)[1],
+                "data_sufficiency": None, "content": None, "version": None,
+                "generated_by": None, "llm_call_id": None, "created_at": None,
+                "confidence": None,
+                "message": "这期还没有报告，点刷新让我整理一份。",
+            }
+        return _serialize_insight(kind, row, period)
+    except Exception as exc:  # noqa: BLE001 — read API never raises (C7)
+        _log.warning("insight read/generate failed (%s): %s", kind, exc)
+        return {"kind": kind, "status": "error", "message": str(exc)}
+
+
+async def _get_insight_report(kind: str, request: Request) -> dict:
+    """Shared handler for the two insight report GET routes."""
+    date_str = request.query_params.get("date")
+    force = (request.query_params.get("force") or "").strip().lower() in (
+        "1", "true", "yes", "on")
+    try:
+        store = _open_ptg_store_for_insights()
+    except Exception as exc:  # noqa: BLE001 — read API never raises (C7)
+        _log.warning("insight store open failed (%s): %s", kind, exc)
+        return {"kind": kind, "status": "error", "message": "数据存储暂不可用"}
+    try:
+        user_id = _resolve_insight_founder(store)
+        if not user_id:
+            return {
+                "kind": kind, "status": "no_data", "period_key": None,
+                "period_start": None, "period_end": None, "data_sufficiency": None,
+                "content": None, "version": None, "generated_by": None,
+                "llm_call_id": None, "created_at": None, "confidence": None,
+                "message": "我还在了解你——继续和我聊几天，就有内容可以整理了。",
+            }
+        return _read_or_generate_insight(
+            kind, store, user_id, date_str=date_str, force=force)
+    finally:
+        try:
+            store.close()
+        except Exception:  # noqa: BLE001 — best-effort refcount decrement
+            pass
+
+
+@app.get("/api/insights/weekly-mirror")
+async def get_weekly_mirror(request: Request) -> dict:
+    return await _get_insight_report("weekly-mirror", request)
+
+
+@app.get("/api/insights/daily-report")
+async def get_daily_report(request: Request) -> dict:
+    return await _get_insight_report("daily-report", request)
+
+
+# ---------------------------------------------------------------------------
 # Operations endpoints — doctor / security audit / backup / import /
 # checkpoints / hooks.
 #

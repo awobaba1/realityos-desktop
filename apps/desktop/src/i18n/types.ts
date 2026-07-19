@@ -1275,6 +1275,24 @@ export interface Translations {
     copyPath: string
   }
 
+  insights: {
+    title: string
+    tabWeekly: string
+    tabDaily: string
+    refresh: string
+    refreshing: string
+    refreshHelp: string
+    noDataTitle: string
+    noDataDesc: string
+    errorTitle: string
+    errorDesc: string
+    placeholderNote: string
+    sufficiencySufficient: string
+    sufficiencyPartial: string
+    sufficiencyInsufficient: string
+    periodLabel: (start: string | null, end: string | null) => string
+  }
+
   sidebar: {
     nav: Record<string, string>
     searchAria: string

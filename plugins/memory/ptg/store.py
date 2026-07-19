@@ -511,14 +511,16 @@ class PTGStore:
         """Read one cached insight row by (user, type, period_key), or None.
 
         The scheduler (ADR-V6-019) uses this to decide whether a period's report
-        already exists (skip) before spending an LLM call. Respects soft-delete.
+        already exists (skip) before spending an LLM call, and the desktop UI
+        read API (ADR-V6-020) uses it for cache-first reads. Respects soft-delete.
         Never raises (C7).
         """
         try:
             with self._lock:
                 row = self._conn.execute(
                     """SELECT data_sufficiency, llm_call_id, version, created_at,
-                              result_data
+                              result_data, generated_by, period_start, period_end,
+                              confidence
                        FROM insight_aggregation
                        WHERE user_id = ? AND aggregation_type = ?
                          AND period_key = ? AND deleted_at IS NULL""",
@@ -536,7 +538,30 @@ class PTGStore:
             "version": row["version"],
             "created_at": row["created_at"],
             "result_data": row["result_data"],
+            "generated_by": row["generated_by"],
+            "period_start": row["period_start"],
+            "period_end": row["period_end"],
+            "confidence": row["confidence"],
         }
+
+    def founder_user_id(self) -> Optional[str]:
+        """Read the persisted founder user_id from ``ptg_meta``, or None.
+
+        This is the stable single-tenant id ``PTGProvider._resolve_user_id``
+        writes once (provider.py). Read-only — does NOT create one if absent
+        (the provider owns creation during its init). Used by the desktop UI
+        read API (ADR-V6-020) and the scheduler (ADR-V6-019) to scope reads to
+        the founder tenant. Never raises (C7).
+        """
+        try:
+            with self._lock:
+                row = self._conn.execute(
+                    "SELECT value FROM ptg_meta WHERE key = 'founder_user_id'"
+                ).fetchone()
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("founder_user_id read failed: %s", exc)
+            return None
+        return row[0] if row is not None else None
 
     def recent_quality_metrics(
         self,

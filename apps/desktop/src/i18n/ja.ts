@@ -1466,6 +1466,24 @@ export const ja = defineLocale({
     copyPath: 'パスをコピー'
   },
 
+  insights: {
+    title: 'インサイト',
+    tabWeekly: '週次ミラー',
+    tabDaily: 'デイリーレポート',
+    refresh: '更新',
+    refreshing: '作成中…',
+    refreshHelp: 'このレポートを再生成',
+    noDataTitle: 'まだレポートはありません',
+    noDataDesc: 'あと数日会話を続ければ、まとめられる内容がたまります。',
+    errorTitle: 'レポートを読み込めません',
+    errorDesc: 'データは安全です。少し時間をおいて再試行してください。',
+    placeholderNote: 'まだあなたを知る段階です。内容が足りないため、これはプレースホルダーです。',
+    sufficiencySufficient: 'データ十分',
+    sufficiencyPartial: 'データ限定的',
+    sufficiencyInsufficient: '準備中',
+    periodLabel: (start, end) => (start && end ? `${start} ～ ${end}` : start ?? '')
+  },
+
   sidebar: {
     nav: {
       'new-session': '新しいセッション',

@@ -1544,6 +1544,24 @@ export const en: Translations = {
     copyPath: 'Copy path'
   },
 
+  insights: {
+    title: 'Insights',
+    tabWeekly: 'Weekly mirror',
+    tabDaily: 'Daily report',
+    refresh: 'Refresh',
+    refreshing: 'Drafting…',
+    refreshHelp: 'Regenerate this report',
+    noDataTitle: 'No report yet',
+    noDataDesc: 'Chat with me for a few days and there will be something to put together.',
+    errorTitle: "Couldn't read the report",
+    errorDesc: 'Your data is safe — try again in a moment.',
+    placeholderNote: 'Still getting to know you — this is a placeholder until there is more to say.',
+    sufficiencySufficient: 'Enough data',
+    sufficiencyPartial: 'Limited data',
+    sufficiencyInsufficient: 'Warming up',
+    periodLabel: (start, end) => (start && end ? `${start} – ${end}` : start ?? '')
+  },
+
   sidebar: {
     nav: {
       'new-session': 'New session',

@@ -1722,6 +1722,24 @@ export const zh: Translations = {
     copyPath: '复制路径'
   },
 
+  insights: {
+    title: '洞察',
+    tabWeekly: '周镜面',
+    tabDaily: '每日报告',
+    refresh: '刷新',
+    refreshing: '正在整理…',
+    refreshHelp: '重新生成这份报告',
+    noDataTitle: '还没有报告',
+    noDataDesc: '继续和我聊几天，就有内容可以整理了。',
+    errorTitle: '暂时读不到报告',
+    errorDesc: '你的数据都在，稍后再试一次。',
+    placeholderNote: '我还在了解你——内容还不够，这是一份占位，等聊得多了会更准。',
+    sufficiencySufficient: '数据充分',
+    sufficiencyPartial: '数据有限',
+    sufficiencyInsufficient: '还在热身',
+    periodLabel: (start, end) => (start && end ? `${start} ～ ${end}` : start ?? '')
+  },
+
   sidebar: {
     nav: {
       'new-session': '新建会话',

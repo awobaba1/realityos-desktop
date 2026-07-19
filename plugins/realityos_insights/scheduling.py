@@ -172,14 +172,8 @@ def _run_startup_lazy(*, founder_wait_seconds: float = 60.0,
 
 
 def _read_founder_user_id(store: PTGStore) -> Optional[str]:
-    try:
-        with store._lock:
-            row = store._conn.execute(
-                "SELECT value FROM ptg_meta WHERE key='founder_user_id'"
-            ).fetchone()
-        return row[0] if row is not None else None
-    except Exception:  # noqa: BLE001
-        return None
+    # Thin wrapper over the public store read (ADR-V6-020 centralized it).
+    return store.founder_user_id()
 
 
 def _wait_for_founder(store: PTGStore, wait_seconds: float,

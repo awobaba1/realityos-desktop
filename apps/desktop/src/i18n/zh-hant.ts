@@ -1419,6 +1419,24 @@ export const zhHant = defineLocale({
     copyPath: '複製路徑'
   },
 
+  insights: {
+    title: '洞察',
+    tabWeekly: '週鏡面',
+    tabDaily: '每日報告',
+    refresh: '重新整理',
+    refreshing: '整理中…',
+    refreshHelp: '重新產生這份報告',
+    noDataTitle: '還沒有報告',
+    noDataDesc: '繼續和我聊幾天，就有內容可以整理了。',
+    errorTitle: '暫時讀不到報告',
+    errorDesc: '你的資料都在，稍後再試一次。',
+    placeholderNote: '我還在了解你——內容還不夠，這是一份占位，等聊得多了會更準。',
+    sufficiencySufficient: '資料充分',
+    sufficiencyPartial: '資料有限',
+    sufficiencyInsufficient: '暖機中',
+    periodLabel: (start, end) => (start && end ? `${start} ～ ${end}` : start ?? '')
+  },
+
   sidebar: {
     nav: {
       'new-session': '新工作階段',

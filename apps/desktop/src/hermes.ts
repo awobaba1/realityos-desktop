@@ -19,6 +19,8 @@ import type {
   EnvVarInfo,
   HermesConfig,
   HermesConfigRecord,
+  InsightReportKind,
+  InsightReportResponse,
   LogsResponse,
   McpCatalogResponse,
   McpServerSummary,
@@ -1251,6 +1253,38 @@ export function resetMemory(target: 'all' | 'memory' | 'user'): Promise<{ ok: bo
     method: 'POST',
     body: { target }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Insight reports — weekly mirror (PRD #4) + daily report (PRD #2), ADR-V6-020.
+// Cache-first read; pass `force: true` to regenerate (one LLM call). `date` is
+// optional ('YYYY-MM-DD' — a week-start Monday for the weekly mirror, a day for
+// the daily report); omit for the most recently completed period.
+// ---------------------------------------------------------------------------
+
+export function getInsightReport(
+  kind: InsightReportKind,
+  params: { date?: string; force?: boolean } = {}
+): Promise<InsightReportResponse> {
+  const query = new URLSearchParams()
+
+  if (params.date) {query.set('date', params.date)}
+
+  if (params.force) {query.set('force', 'true')}
+  const qs = query.toString()
+
+  return window.hermesDesktop.api<InsightReportResponse>({
+    ...profileScoped(),
+    path: `/api/insights/${kind}${qs ? `?${qs}` : ''}`
+  })
+}
+
+export function getWeeklyMirror(params: { date?: string; force?: boolean } = {}): Promise<InsightReportResponse> {
+  return getInsightReport('weekly-mirror', params)
+}
+
+export function getDailyReport(params: { date?: string; force?: boolean } = {}): Promise<InsightReportResponse> {
+  return getInsightReport('daily-report', params)
 }
 
 export function getCuratorStatus(): Promise<CuratorStatusResponse> {
