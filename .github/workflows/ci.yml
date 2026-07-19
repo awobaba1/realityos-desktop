@@ -121,6 +121,38 @@ jobs:
     uses: ./.github/workflows/docker.yml
     secrets: inherit
 
+  docker-build-smoke:
+    # ADR-V6-030 (fixes ADR-V6-022 B10: "docker lane removed from
+    # all-checks-pass + fork always skips → image never validated in CI").
+    #
+    # The upstream docker.yml build/merge jobs skip on forks via a
+    # ``github.repository == 'NousResearch/hermes-agent'`` guard, so the image
+    # was never built on this fork. This smoke is fork-agnostic (NO repo-owner
+    # guard), amd64 only, build-no-push — a fast check that the Dockerfile
+    # still assembles. It mirrors the docker job's detect condition so it does
+    # not slow every PR, but UNLIKE the docker job it actually RUNS here and is
+    # wired into the all-checks-pass gate.
+    name: Docker build smoke
+    needs: detect
+    if: needs.detect.outputs.python == 'true' || needs.detect.outputs.frontend == 'true' || needs.detect.outputs.docker_meta == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build image (no push)
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: hermes-agent:smoke
+          cache-from: type=gha,scope=docker-smoke
+          cache-to: type=gha,mode=max,scope=docker-smoke
+
   supply-chain:
     name: Supply-chain scan
     needs: detect
@@ -157,8 +189,11 @@ jobs:
       - docker-lint
       - supply-chain
       - osv-scanner
-      # we don't require docker to pass rn because it's so slow lol
-      # - docker
+      # ADR-V6-030 (B10): re-wired the docker lane. The full multi-arch push
+      # lane (docker job) stays fork-skipped (needs Docker Hub creds), but this
+      # fork-agnostic build smoke is now required so the image is always
+      # validated on this fork instead of never built.
+      - docker-build-smoke
     if: always()
     runs-on: ubuntu-latest
     steps:

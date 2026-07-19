@@ -1,4 +1,11 @@
 FROM ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie@sha256:b3c543b6c4f23a5f2df22866bd7857e5d304b67a564f4feab6ac22044dde719b AS uv_source
+# ADR-V6-030 (B10): this Dockerfile is validated on every PR by the
+# docker-build-smoke job in ci.yml (fork-agnostic, amd64, build-no-push, wired
+# into all-checks-pass). The upstream docker.yml push lane still skips on forks
+# (it needs Docker Hub creds + a NousResearch/hermes-agent repo guard). This
+# comment also ensures a Dockerfile-only change trips detect-changes' docker_meta
+# bucket so the smoke runs on this commit's own CI.
+# Node 22 LTS source stage. Debian trixie's bundled nodejs is pinned to 20.x
 # Node 22 LTS source stage. Debian trixie's bundled nodejs is pinned to 20.x
 # which reached EOL in April 2026 — we copy node + npm + corepack from the
 # upstream node:22 image instead so we can stay on a supported LTS without
