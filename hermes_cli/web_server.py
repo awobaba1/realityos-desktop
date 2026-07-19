@@ -12345,6 +12345,164 @@ async def get_memory_browse(request: Request) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# RealityOS V6 — sovereignty (ADR-V6-023). Wires the §6 sovereignty primitives
+# (one-click export / §6.2 cascade delete / §6.7 minor mode) to the UI. The
+# primitives in plugins/realityos_sovereignty/sovereignty.py are real + tested
+# but were ORPHAN CODE (zero non-test callers — the plugin's own register()
+# docstring said "the wiring is the next step"). This block is that wiring: it
+# turns "数据主权" from a README claim into a user-reachable feature.
+#
+# Reuses the shared store + founder helpers above (ADR-V6-020), zero new helper.
+# Fail-open (C7): store open failure / no founder / any exception → HTTP 200 +
+# structured payload, never 5xx, never throws to the UI (same contract as the
+# insight/memory read APIs). Cascade is SOFT-MARK only (§6.2 阶段1) — physical
+# purge (purge_soft_deleted) is a separate opt-in nightly cron, never a UI
+# one-click. consent_tag UI is deferred (needs relations row-level id exposure).
+# ---------------------------------------------------------------------------
+
+
+async def _sovereignty_export(request: Request) -> dict:
+    """Handler for GET /api/sovereignty/export — one-click JSON export."""
+    try:
+        store = _open_ptg_store_for_insights()
+    except Exception as exc:  # noqa: BLE001 — write/read API never raises (C7)
+        _log.warning("sovereignty export store open failed: %s", exc)
+        return {"status": "error", "message": "数据存储暂不可用"}
+    try:
+        user_id = _resolve_insight_founder(store)
+        if not user_id:
+            return {"status": "no_data", "message": "还没有可导出的记忆。"}
+        from plugins.realityos_sovereignty.sovereignty import export_user_data
+        return {"status": "ok", "data": export_user_data(store, user_id)}
+    finally:
+        try:
+            store.close()
+        except Exception:  # noqa: BLE001 — best-effort refcount decrement
+            pass
+
+
+async def _sovereignty_delete(request: Request) -> dict:
+    """Handler for POST /api/sovereignty/delete — §6.2 cascade soft-delete.
+
+    Body ``{mode: 'A'|'B', since?, until?}``. A bad mode returns a structured
+    ``error`` (code ``bad_mode``) rather than 5xx — the caller surfaces the
+    message; the convention here is 200 + status payload (matches the insight/
+    memory read APIs), so the UI dispatches uniformly on ``status``.
+    """
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — malformed/empty body
+        body = {}
+    mode = str(body.get("mode", "")).strip().upper()
+    if mode not in ("A", "B"):
+        return {
+            "status": "error", "code": "bad_mode",
+            "message": "删除模式必须是 A（仅记忆）或 B（含原子与关系）。",
+        }
+    since = str(body["since"]) if body.get("since") else None
+    until = str(body["until"]) if body.get("until") else None
+    try:
+        store = _open_ptg_store_for_insights()
+    except Exception as exc:  # noqa: BLE001 — write API never raises (C7)
+        _log.warning("sovereignty delete store open failed: %s", exc)
+        return {"status": "error", "message": "数据存储暂不可用"}
+    try:
+        user_id = _resolve_insight_founder(store)
+        if not user_id:
+            return {"status": "no_data", "message": "还没有记忆可删除。"}
+        from plugins.realityos_sovereignty.sovereignty import cascade_soft_delete
+        # cascade_soft_delete raises ValueError on a bad mode, but we validated
+        # above; it never raises otherwise (C7) and never hard-DELETES (C2).
+        marked = cascade_soft_delete(
+            store, user_id, mode=mode, since=since, until=until)
+        return {"status": "ok", "mode": mode, "marked": marked}
+    except ValueError as exc:  # defensive — validation above should prevent this
+        return {"status": "error", "code": "bad_mode", "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001 — write API never raises (C7)
+        _log.warning("sovereignty delete failed: %s", exc)
+        return {"status": "error", "message": str(exc)}
+    finally:
+        try:
+            store.close()
+        except Exception:  # noqa: BLE001 — best-effort refcount decrement
+            pass
+
+
+async def _sovereignty_get_minor(request: Request) -> dict:
+    """Handler for GET /api/sovereignty/minor — read the §6.7 minor-mode flag."""
+    try:
+        store = _open_ptg_store_for_insights()
+    except Exception as exc:  # noqa: BLE001 — read API never raises (C7)
+        _log.warning("sovereignty minor store open failed: %s", exc)
+        return {"status": "error", "message": "数据存储暂不可用"}
+    try:
+        user_id = _resolve_insight_founder(store)
+        if not user_id:
+            # No founder yet → adult default (is_minor=False), not an error.
+            return {"status": "ok", "enabled": False}
+        from plugins.realityos_sovereignty.sovereignty import is_minor
+        return {"status": "ok", "enabled": is_minor(store, user_id)}
+    finally:
+        try:
+            store.close()
+        except Exception:  # noqa: BLE001 — best-effort refcount decrement
+            pass
+
+
+async def _sovereignty_set_minor(request: Request) -> dict:
+    """Handler for POST /api/sovereignty/minor — set the §6.7 minor-mode flag.
+
+    Body ``{enabled: bool}``. When on, the Atomizer (ADR-V6-023 §2) skips R1/
+    R9 biometric atoms. Uses POST (not PUT) to match the file's convention.
+    """
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — malformed/empty body
+        body = {}
+    enabled = bool(body.get("enabled"))
+    try:
+        store = _open_ptg_store_for_insights()
+    except Exception as exc:  # noqa: BLE001 — write API never raises (C7)
+        _log.warning("sovereignty minor store open failed: %s", exc)
+        return {"status": "error", "message": "数据存储暂不可用"}
+    try:
+        user_id = _resolve_insight_founder(store)
+        if not user_id:
+            return {"status": "no_data", "message": "还没有账号，稍后再试。"}
+        from plugins.realityos_sovereignty.sovereignty import set_minor_mode
+        set_minor_mode(store, user_id, enabled)
+        return {"status": "ok", "enabled": enabled}
+    except Exception as exc:  # noqa: BLE001 — write API never raises (C7)
+        _log.warning("sovereignty set minor failed: %s", exc)
+        return {"status": "error", "message": str(exc)}
+    finally:
+        try:
+            store.close()
+        except Exception:  # noqa: BLE001 — best-effort refcount decrement
+            pass
+
+
+@app.get("/api/sovereignty/export")
+async def sovereignty_export(request: Request) -> dict:
+    return await _sovereignty_export(request)
+
+
+@app.post("/api/sovereignty/delete")
+async def sovereignty_delete(request: Request) -> dict:
+    return await _sovereignty_delete(request)
+
+
+@app.get("/api/sovereignty/minor")
+async def sovereignty_get_minor(request: Request) -> dict:
+    return await _sovereignty_get_minor(request)
+
+
+@app.post("/api/sovereignty/minor")
+async def sovereignty_set_minor(request: Request) -> dict:
+    return await _sovereignty_set_minor(request)
+
+
+# ---------------------------------------------------------------------------
 # Operations endpoints — doctor / security audit / backup / import /
 # checkpoints / hooks.
 #

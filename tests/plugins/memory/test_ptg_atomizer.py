@@ -650,3 +650,72 @@ def test_materialization_persists_r3_aliases(store):
         ("张三", "user-1")).fetchone()
     assert row is not None
     assert json.loads(row["properties"])["aliases"] == ["老张", "张总"]
+
+
+# ---------------------------------------------------------------------------
+# §6.7 minor-mode gate (ADR-V6-023) — drop R1SelfState/R9Emotion biometric
+# atoms for minor tenants at the materialization boundary; extraction unchanged.
+# ---------------------------------------------------------------------------
+
+# A supplement payload with one R9 emotion atom (v12 pass).
+_SUPPLEMENT_R9 = {
+    "summary": "情绪波动",
+    "atoms": [
+        {"type": "R9_Emotion", "emotion_label": "焦虑", "valence": "negative",
+         "arousal": "high", "trigger": "项目进度", "intensity": "high",
+         "confidence": 0.85},
+    ],
+}
+
+
+def test_minor_mode_drops_r1_and_r9_biometric_atoms(store):
+    from plugins.realityos_sovereignty.sovereignty import set_minor_mode
+
+    set_minor_mode(store, "user-1", True)
+    # Primary (_VALID_OUTPUT) carries R3 + R1 (SelfState); supplement carries R9.
+    az = _atomizer(
+        store, _callerReturning(_resp(_VALID_OUTPUT), _SUPPLEMENT_R9))
+
+    out = az.atomize(memo_id=_memo(store), source_text="今天和张三开会心烦...")
+
+    # Primary has 5 atoms (R3/R2/R7/R1/R0); R1 dropped → 4 written. The R9
+    # supplement atom is also dropped → filtered counts both (R1 + R9).
+    assert out["written"] == 4
+    assert out["filtered"] == 2
+    types = {a["type"] for a in store.recent_atoms(user_id="user-1")}
+    assert "R3_Person" in types
+    assert "R1_SelfState" not in types
+    assert "R9_Emotion" not in types
+
+
+def test_adult_mode_keeps_r1_and_r9_zero_regression(store):
+    # Default (adult) mode: the gate is inert — R1 + R9 written as before.
+    az = _atomizer(
+        store, _callerReturning(_resp(_VALID_OUTPUT), _SUPPLEMENT_R9))
+
+    out = az.atomize(memo_id=_memo(store), source_text="今天和张三开会心烦...")
+
+    assert out["written"] == 6  # 5 primary (incl. R1) + 1 supplement (R9)
+    assert out["filtered"] == 0
+    types = {a["type"] for a in store.recent_atoms(user_id="user-1")}
+    assert "R1_SelfState" in types
+    assert "R9_Emotion" in types
+
+
+def test_minor_mode_keeps_non_biometric_atoms(store):
+    from plugins.realityos_sovereignty.sovereignty import set_minor_mode
+
+    set_minor_mode(store, "user-1", True)
+    # Only R2 + R3 (no biometric atoms) — the gate must not touch them.
+    payload = {"summary": "s", "atoms": [
+        {"type": "R3_Person", "person_name": "张三", "sentiment": "neutral",
+         "interaction_type": "meeting", "segment_id": 0, "confidence": 0.9},
+        {"type": "R2_Task", "task_description": "推进项目", "urgency": "medium",
+         "deadline": None, "confidence": 0.8}]}
+    az = _atomizer(store, _callerReturning(_resp(payload)))
+
+    out = az.atomize(memo_id=_memo(store), source_text="x")
+
+    assert out["written"] == 2
+    assert out["filtered"] == 0  # gate specific to R1/R9; R2/R3 unaffected
+

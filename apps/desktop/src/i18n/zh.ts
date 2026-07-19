@@ -314,7 +314,8 @@ export const zh: Translations = {
       archivedChats: '已归档对话',
       about: '关于',
       notifications: '通知',
-      plugins: '插件'
+      plugins: '插件',
+      sovereignty: '数据主权'
     },
     plugins: {
       title: '桌面插件',
@@ -329,6 +330,32 @@ export const zh: Translations = {
       failed: '失败',
       empty: '尚未安装桌面插件。',
       kinds: { bundled: '内置', disk: '磁盘', runtime: '运行时' }
+    },
+    sovereignty: {
+      title: '数据主权',
+      intro: '你的记忆只属于你——随时导出、按段删除、或为未成年人降级采集。',
+      exportTitle: '导出我的数据',
+      exportDesc: '一键导出你全部记忆的 JSON 文件（PIPL §45 可携带权）。',
+      exportBtn: '导出 JSON',
+      exportFailed: '导出失败，请稍后重试。',
+      deleteTitle: '删除一段记忆',
+      deleteDesc: '软删除（可联系开发者在 1 天内恢复）。物理清除由夜间维护单独执行。',
+      deleteModeA: '模式 A：仅留言',
+      deleteModeADesc: '回收空间——只删除原始留言，保留已提取的原子与关系。',
+      deleteModeB: '模式 B：彻底遗忘',
+      deleteModeBDesc: '删除留言 + 原子 + 实体 + 关系（全部遗忘）。',
+      deleteBtn: '删除',
+      deleteConfirmA: '确定要软删除这段时间的留言吗？原子与关系会保留。',
+      deleteConfirmB: '确定要彻底遗忘这段时间的全部记忆吗？此操作无法在界面内撤销。',
+      deleteDone: summary => `已完成软删除：${summary}`,
+      deleteFailed: '删除失败，请稍后重试。',
+      deleteMarked: counts => `已标记：${counts}`,
+      minorTitle: '未成年人模式',
+      minorDesc: '开启后不再记录状态（R1）与情绪（R9）生物标记原子。',
+      minorOn: '已开启',
+      minorOff: '已关闭',
+      noData: '还没有记忆，继续使用几天后再来。',
+      loadFailed: '读取设置失败，请稍后重试。'
     },
     notifications: {
       title: '通知',

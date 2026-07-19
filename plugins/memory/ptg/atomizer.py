@@ -190,6 +190,10 @@ class Atomizer:
         # entities/relations nodes+edges. Default ON (same heart-must-beat spirit
         # as atomize); fail-isolated so a graph error never breaks event capture.
         self._materialize_enabled = materialize_graph
+        # §6.7 PIPL §31 minor mode (ADR-V6-023): re-read per memo in atomize()
+        # so a live toggle takes effect immediately; when on, R1/R9 biometric
+        # atoms are dropped at the materialization boundary.
+        self._minor_mode = False
         self._self_name = self_name
         self._self_entity_id: Optional[str] = None
 
@@ -237,6 +241,13 @@ class Atomizer:
         counts dict: written / filtered / invalid / llm_call_ids / latency_ms.
         """
         start = time.monotonic()
+        # §6.7 PIPL §31 minor mode (ADR-V6-023): read once per memo so a live
+        # toggle takes effect immediately. When on, R1SelfState/R9Emotion
+        # biometric atoms are dropped at the materialization boundary —
+        # extraction still runs (the prompt is untouched, C6). is_minor never
+        # raises (C7); on a store/meta error it returns False (adult default).
+        from plugins.realityos_sovereignty.sovereignty import is_minor
+        self._minor_mode = is_minor(self._store, self._user_id)
         # ADR-V6-013: build the known-entity vocab once (None on first run / load
         # failure → extraction proceeds vocab-less, never blocked).
         entity_vocab = self._entity_vocab_section()
@@ -376,6 +387,15 @@ class Atomizer:
 
         # Step 5 — dispatch valid atoms; DLQ filtered + invalid.
         for atom in validation.valid_atoms:
+            # §6.7 minor-mode gate (ADR-V6-023): drop R1SelfState/R9Emotion
+            # biometric atoms for minor tenants. Extraction runs unchanged
+            # (prompt untouched, C6); only these two atom kinds are gated at
+            # the materialization boundary. Counted as filtered, not invalid.
+            if self._minor_mode:
+                from .atom_schemas import R1SelfStateAtom, R9EmotionAtom
+                if isinstance(atom, (R1SelfStateAtom, R9EmotionAtom)):
+                    out["filtered"] += 1
+                    continue
             try:
                 self._write_atom(atom, memo_id=memo_id, source_text=source_text,
                                  input_mode=input_mode, llm_call_id=llm_call_id)

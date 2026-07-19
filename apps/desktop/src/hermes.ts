@@ -1300,6 +1300,68 @@ export function getMemoryBrowse(params: { limit?: number } = {}): Promise<Memory
   })
 }
 
+// RealityOS V6 — sovereignty (ADR-V6-023). Wires the §6 sovereignty primitives
+// (one-click export / §6.2 cascade delete / §6.7 minor mode) to the Settings UI.
+// All endpoints are fail-open: status ∈ {ok, no_data, error}; errors carry a
+// `message`, never throw to the caller. Delete is soft-mark only (§6.2 阶段1).
+// ---------------------------------------------------------------------------
+
+export interface SovereigntyExportResponse {
+  status: 'ok' | 'no_data' | 'error'
+  data?: Record<string, unknown>
+  message?: string
+}
+
+export interface SovereigntyDeleteResponse {
+  status: 'ok' | 'no_data' | 'error'
+  mode?: 'A' | 'B'
+  marked?: Record<string, number>
+  code?: string
+  message?: string
+}
+
+export interface SovereigntyMinorResponse {
+  status: 'ok' | 'no_data' | 'error'
+  enabled?: boolean
+  message?: string
+}
+
+export function exportSovereigntyData(): Promise<SovereigntyExportResponse> {
+  return window.hermesDesktop.api<SovereigntyExportResponse>({
+    ...profileScoped(),
+    path: '/api/sovereignty/export'
+  })
+}
+
+export function deleteSovereigntyData(params: {
+  mode: 'A' | 'B'
+  since?: string
+  until?: string
+}): Promise<SovereigntyDeleteResponse> {
+  return window.hermesDesktop.api<SovereigntyDeleteResponse>({
+    ...profileScoped(),
+    path: '/api/sovereignty/delete',
+    method: 'POST',
+    body: params
+  })
+}
+
+export function getMinorMode(): Promise<SovereigntyMinorResponse> {
+  return window.hermesDesktop.api<SovereigntyMinorResponse>({
+    ...profileScoped(),
+    path: '/api/sovereignty/minor'
+  })
+}
+
+export function setMinorMode(enabled: boolean): Promise<SovereigntyMinorResponse> {
+  return window.hermesDesktop.api<SovereigntyMinorResponse>({
+    ...profileScoped(),
+    path: '/api/sovereignty/minor',
+    method: 'POST',
+    body: { enabled }
+  })
+}
+
 export function getCuratorStatus(): Promise<CuratorStatusResponse> {
   return window.hermesDesktop.api<CuratorStatusResponse>({
     ...profileScoped(),

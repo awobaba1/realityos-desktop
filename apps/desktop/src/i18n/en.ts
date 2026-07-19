@@ -323,7 +323,8 @@ export const en: Translations = {
       archivedChats: 'Archived Chats',
       about: 'About',
       notifications: 'Notifications',
-      plugins: 'Plugins'
+      plugins: 'Plugins',
+      sovereignty: 'Data sovereignty'
     },
     plugins: {
       title: 'Desktop plugins',
@@ -338,6 +339,32 @@ export const en: Translations = {
       failed: 'failed',
       empty: 'No desktop plugins installed yet.',
       kinds: { bundled: 'bundled', disk: 'on disk', runtime: 'runtime' }
+    },
+    sovereignty: {
+      title: 'Data sovereignty',
+      intro: 'Your memory is yours alone — export it, delete a window, or downgrade collection for a minor.',
+      exportTitle: 'Export my data',
+      exportDesc: 'One-click JSON export of all your memory (PIPL §45 portability).',
+      exportBtn: 'Export JSON',
+      exportFailed: 'Export failed, please retry shortly.',
+      deleteTitle: 'Delete a window of memory',
+      deleteDesc: 'Soft delete (recoverable via the developer within 1 day). Physical purge runs separately as nightly maintenance.',
+      deleteModeA: 'Mode A: memos only',
+      deleteModeADesc: 'Reclaim space — removes only the raw messages, keeping extracted atoms and relations.',
+      deleteModeB: 'Mode B: total forgetting',
+      deleteModeBDesc: 'Removes messages + atoms + entities + relations (full forgetting).',
+      deleteBtn: 'Delete',
+      deleteConfirmA: 'Soft-delete the messages in this window? Atoms and relations are kept.',
+      deleteConfirmB: 'Totally forget all memory in this window? This cannot be undone from the UI.',
+      deleteDone: summary => `Soft-delete complete: ${summary}`,
+      deleteFailed: 'Delete failed, please retry shortly.',
+      deleteMarked: counts => `Marked: ${counts}`,
+      minorTitle: 'Minor mode',
+      minorDesc: 'When on, state (R1) and emotion (R9) biometric atoms are no longer recorded.',
+      minorOn: 'On',
+      minorOff: 'Off',
+      noData: 'No memory yet — chat a few more days and come back.',
+      loadFailed: 'Failed to load settings, please retry shortly.'
     },
     notifications: {
       title: 'Notifications',

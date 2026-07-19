@@ -282,6 +282,7 @@ export interface Translations {
       about: string
       notifications: string
       plugins: string
+      sovereignty: string
     }
     plugins: {
       title: string
@@ -314,6 +315,32 @@ export interface Translations {
       completionSoundTitle: string
       completionSoundDesc: string
       completionSoundPreview: string
+    }
+    sovereignty: {
+      title: string
+      intro: string
+      exportTitle: string
+      exportDesc: string
+      exportBtn: string
+      exportFailed: string
+      deleteTitle: string
+      deleteDesc: string
+      deleteModeA: string
+      deleteModeADesc: string
+      deleteModeB: string
+      deleteModeBDesc: string
+      deleteBtn: string
+      deleteConfirmA: string
+      deleteConfirmB: string
+      deleteDone: (summary: string) => string
+      deleteFailed: string
+      deleteMarked: (counts: string) => string
+      minorTitle: string
+      minorDesc: string
+      minorOn: string
+      minorOff: string
+      noData: string
+      loadFailed: string
     }
     sections: Record<string, string>
     searchPlaceholder: Record<'about' | 'config' | 'gateway' | 'keys' | 'mcp' | 'sessions', string>

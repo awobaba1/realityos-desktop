@@ -14,6 +14,7 @@ import {
   Info,
   Keyboard,
   KeyRound,
+  Lock,
   Package,
   RefreshCw,
   Settings2,
@@ -40,6 +41,7 @@ import { NotificationsSettings } from './notifications-settings'
 import { PluginsSettings } from './plugins-settings'
 import { PROVIDER_VIEWS, ProvidersSettings, type ProviderView } from './providers-settings'
 import { SessionsSettings } from './sessions-settings'
+import { SovereigntySettings } from './sovereignty-settings'
 import type { SettingsPageProps, SettingsView as SettingsViewId } from './types'
 
 const SETTINGS_VIEWS: readonly SettingsViewId[] = [
@@ -51,6 +53,7 @@ const SETTINGS_VIEWS: readonly SettingsViewId[] = [
   'notifications',
   'plugins',
   'sessions',
+  'sovereignty',
   'about'
 ]
 
@@ -219,6 +222,14 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
       onSelect: () => setActiveView('plugins')
     },
     {
+      active: activeView === 'sovereignty',
+      gapBefore: true,
+      icon: Lock,
+      id: 'sovereignty',
+      label: t.settings.nav.sovereignty,
+      onSelect: () => setActiveView('sovereignty')
+    },
+    {
       active: activeView === 'sessions',
       icon: Archive,
       id: 'sessions',
@@ -295,6 +306,8 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             <NotificationsSettings />
           ) : activeView === 'plugins' ? (
             <PluginsSettings />
+          ) : activeView === 'sovereignty' ? (
+            <SovereigntySettings />
           ) : (
             <SessionsSettings />
           )}
