@@ -127,6 +127,7 @@ class PTGProvider(MemoryProvider):
                     self._store,
                     user_id=self._user_id,
                     confidence_engine=ConfidenceEngine.from_ptg_config(self._config),
+                    materialize_graph=bool(self._config.get("materialize_graph", True)),
                 )
             except Exception as exc:  # noqa: BLE001 — extraction is enrichment; never fatal
                 logger.warning("PTG Atomizer init failed; atomization disabled: %s", exc)

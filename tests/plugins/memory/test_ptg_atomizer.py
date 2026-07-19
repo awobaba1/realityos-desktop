@@ -414,3 +414,122 @@ def test_sync_turn_end_to_end_writes_atoms_via_mock_llm(tmp_path):
     assert p._store.count_rows("meaning_events") == 2
     assert p._store.count_rows("llm_call_logs") == 1
     p.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Graph materialization — entities/relations upsert (ADR-V6-011 决策6)
+# ---------------------------------------------------------------------------
+
+def test_upsert_entity_creates_then_bumps_mention_count(store):
+    eid1 = store.upsert_entity(user_id="user-1", entity_name="张三", entity_type="person")
+    eid2 = store.upsert_entity(user_id="user-1", entity_name="张三", entity_type="person")
+    assert eid1 == eid2                                       # idempotent
+    row = store._conn.execute(
+        "SELECT mention_count, version FROM entities WHERE id = ?", (eid1,)).fetchone()
+    assert row["mention_count"] == 2
+    assert row["version"] == 2
+
+
+def test_upsert_entity_normalizes_whitespace(store):
+    a = store.upsert_entity(user_id="user-1", entity_name="张三", entity_type="person")
+    b = store.upsert_entity(user_id="user-1", entity_name="  张三  ", entity_type="person")
+    assert a == b
+    assert store.count_rows("entities") == 1                 # not duplicated
+
+
+def test_upsert_relation_evidence_count_and_confidence_max(store):
+    s = store.upsert_entity(user_id="user-1", entity_name="我", entity_type="person")
+    o = store.upsert_entity(user_id="user-1", entity_name="李四", entity_type="person")
+    r1 = store.upsert_relation(user_id="user-1", subject_id=s, object_id=o,
+                               relation_type="interacts_with", confidence=0.5)
+    r2 = store.upsert_relation(user_id="user-1", subject_id=s, object_id=o,
+                               relation_type="interacts_with", confidence=0.9)
+    assert r1 == r2
+    row = store._conn.execute(
+        "SELECT evidence_count, confidence FROM relations WHERE id = ?", (r1,)).fetchone()
+    assert row["evidence_count"] == 2
+    assert abs(row["confidence"] - 0.9) < 1e-9               # max — a low mention never dilutes
+
+
+def test_atomize_materializes_graph_nodes_and_self_edges(store):
+    az = _atomizer(store, _callerReturning(_resp(_VALID_OUTPUT)))
+    az.atomize(memo_id=_memo(store), source_text="x")
+    # self + person(张三) + task + context(厦门国贸) = 4 nodes (R1/R7 make none)
+    assert store.count_rows("entities") == 4
+    # self→person / self→task / self→context = 3 edges
+    assert store.count_rows("relations") == 3
+    self_row = store._conn.execute(
+        "SELECT properties FROM entities WHERE entity_name = '我'").fetchone()
+    assert json.loads(self_row["properties"])["is_self"] is True
+    person = store._conn.execute(
+        "SELECT entity_type FROM entities WHERE entity_name = '张三'").fetchone()
+    assert person["entity_type"] == "person"
+    edge = store._conn.execute(
+        "SELECT r.relation_type FROM relations r "
+        "JOIN entities s ON r.subject_id = s.id "
+        "JOIN entities o ON r.object_id = o.id "
+        "WHERE s.entity_name = '我' AND o.entity_name = '张三'").fetchone()
+    assert edge["relation_type"] == "interacts_with"
+
+
+def test_materialize_graph_can_be_disabled(store):
+    az = Atomizer(store, user_id="user-1",
+                  llm_caller=_callerReturning(_resp(_VALID_OUTPUT)),
+                  now_fn=lambda: _FIXED_NOW,
+                  confidence_engine=ConfidenceEngine(),
+                  materialize_graph=False)
+    az.atomize(memo_id=_memo(store), source_text="x")
+    assert store.count_rows("entities") == 0
+    assert store.count_rows("relations") == 0
+    assert store.count_rows("meaning_events") == 2          # events still captured
+
+
+def test_materialize_failure_isolated_from_event_write(store, monkeypatch):
+    # upsert_entity blows up → graph materialize DLQs, but every event still lands.
+    def boom(self, **kw):
+        raise RuntimeError("graph DB busy")
+    import plugins.memory.ptg.store as store_mod
+    monkeypatch.setattr(store_mod.PTGStore, "upsert_entity", boom)
+
+    az = _atomizer(store, _callerReturning(_resp(_VALID_OUTPUT)))
+    out = az.atomize(memo_id=_memo(store), source_text="x")
+
+    assert out["written"] == 5                               # all events captured
+    assert store.count_rows("identity_events") == 1
+    assert store.count_rows("meaning_events") == 2
+    # 3 eligible atoms (R3/R2/R0) each DLQ a graph_materialize error; R1/R7 skip.
+    dlqs = [dict(r) for r in store._conn.execute(
+        "SELECT source, error_type FROM dlq_messages")]
+    assert len(dlqs) == 3
+    assert all(d["source"] == "graph_materialize" for d in dlqs)
+    assert all(d["error_type"] == "materialize_error" for d in dlqs)
+
+
+def test_materialize_skips_r1_r7_creates_no_nodes(store):
+    output = {"summary": "s", "atoms": [
+        {"type": "R1_SelfState", "state_type": "stress", "direction": "up",
+         "intensity": "high", "confidence": 0.8},
+        {"type": "R7_Expression", "intent_class": "Complaint",
+         "content_summary": "烦", "confidence": 0.8},
+    ]}
+    az = _atomizer(store, _callerReturning(_resp(output)))
+    az.atomize(memo_id=_memo(store), source_text="x")
+    assert store.count_rows("entities") == 0                # no self node either
+    assert store.count_rows("relations") == 0
+    assert store.count_rows("feeling_events") == 1
+    assert store.count_rows("meaning_events") == 1
+
+
+def test_re_atomize_same_atoms_bumps_mention_not_duplicates(store):
+    az = _atomizer(store, _callerReturning(_resp(_VALID_OUTPUT)))
+    az.atomize(memo_id=_memo(store), source_text="x")
+    az.atomize(memo_id=_memo(store), source_text="x")       # same atoms again
+    person = store._conn.execute(
+        "SELECT mention_count FROM entities WHERE entity_name = '张三'").fetchone()
+    assert person["mention_count"] == 2
+    assert store.count_rows("entities") == 4                # not duplicated
+    edge = store._conn.execute(
+        "SELECT r.evidence_count FROM relations r "
+        "JOIN entities o ON r.object_id = o.id "
+        "WHERE o.entity_name = '张三'").fetchone()
+    assert edge["evidence_count"] == 2

@@ -119,6 +119,8 @@ class Atomizer:
         now_fn: Callable[[], datetime] = _beijing_now,
         main_runtime: Optional[dict] = None,
         timeout: float = 30.0,
+        materialize_graph: bool = True,
+        self_name: str = "我",
     ) -> None:
         self._store = store
         self._user_id = user_id
@@ -128,6 +130,12 @@ class Atomizer:
         self._main_runtime = main_runtime
         self._timeout = timeout
         self._system_prompt: Optional[str] = None
+        # Graph materialization (ADR-V6-011 决策6): turn R0/R3/R2 atoms into
+        # entities/relations nodes+edges. Default ON (same heart-must-beat spirit
+        # as atomize); fail-isolated so a graph error never breaks event capture.
+        self._materialize_enabled = materialize_graph
+        self._self_name = self_name
+        self._self_entity_id: Optional[str] = None
 
     # -- prompt -----------------------------------------------------------
 
@@ -261,6 +269,19 @@ class Atomizer:
                 )
                 logger.warning("Atomizer write failed (%s): %s",
                                getattr(atom, "type", "?"), exc)
+                continue  # event capture failed → skip graph materialization
+            if self._materialize_enabled:
+                try:
+                    self._materialize_graph(atom, memo_id=memo_id)
+                except Exception as exc:  # noqa: BLE001 — enrichment isolated from capture
+                    self._store.insert_dlq(
+                        user_id=self._user_id, source="graph_materialize",
+                        error_type="materialize_error",
+                        error_msg=f"Failed to materialize {getattr(atom, 'type', '?')}: {exc}",
+                        original_data={"memo_id": memo_id, "atom": _safe_dump(atom)},
+                    )
+                    logger.warning("Atomizer graph materialize failed (%s): %s",
+                                   getattr(atom, "type", "?"), exc)
 
         for f_atom in validation.filtered_atoms:
             self._store.insert_dlq(
@@ -317,6 +338,57 @@ class Atomizer:
                 mention_context=ctx, **common)
         else:  # pragma: no cover — gate only emits the 5 known types
             raise ValueError(f"unsupported atom type: {type(atom)!r}")
+
+    # -- graph materialization (决策6) -----------------------------------
+
+    def _materialize_graph(self, atom: Any, *, memo_id: str) -> None:
+        """Turn an R0/R3/R2 atom into a graph node + a self→node edge.
+
+        The self entity (the founder — implicit subject of every personal memo)
+        is upserted once and cached. Each eligible atom becomes one node and one
+        self→node semantic edge. R1/R7 carry no node in Phase 1a (states and
+        expressions are not entities). Failures here are isolated by the caller
+        (graph errors never break the event-table capture).
+        """
+        from .atom_schemas import (
+            R0EntityAtom, R2TaskAtom, R3PersonAtom,
+        )
+        if isinstance(atom, R3PersonAtom):
+            ent_name, ent_type = atom.person_name, "person"
+            edge_type, edge_val = "interacts_with", atom.interaction_type
+            props = {"sentiment": atom.sentiment,
+                     "interaction_type": atom.interaction_type}
+        elif isinstance(atom, R0EntityAtom):
+            ent_name = atom.entity_name
+            # place/organization → context node; term → topic node (决策6 mapping).
+            ent_type = "topic" if atom.entity_category == "term" else "context"
+            edge_type, edge_val = "mentions", atom.entity_category
+            props = {"category": atom.entity_category}
+        elif isinstance(atom, R2TaskAtom):
+            ent_name, ent_type = atom.task_description, "task"
+            edge_type, edge_val = "has_task", atom.urgency
+            props = {"urgency": atom.urgency, "status": "pending"}
+        else:
+            return  # R1/R7 — no graph node in Phase 1a
+        props = {k: v for k, v in props.items() if v is not None}
+        self_id = self._ensure_self_entity()
+        ent_id = self._store.upsert_entity(
+            user_id=self._user_id, entity_name=ent_name,
+            entity_type=ent_type, properties=props or None,
+        )
+        self._store.upsert_relation(
+            user_id=self._user_id, subject_id=self_id, object_id=ent_id,
+            relation_type=edge_type, value=edge_val, confidence=atom.confidence,
+        )
+
+    def _ensure_self_entity(self) -> str:
+        """Upsert the founder self-node once, cache its id for the turn."""
+        if self._self_entity_id is None:
+            self._self_entity_id = self._store.upsert_entity(
+                user_id=self._user_id, entity_name=self._self_name,
+                entity_type="person", properties={"is_self": True},
+            )
+        return self._self_entity_id
 
     # -- C6 log helpers ---------------------------------------------------
 

@@ -54,6 +54,16 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _normalize_entity_name(name: str) -> str:
+    """Stable lookup key for an entity name.
+
+    Phase 1a: strip + collapse whitespace + lowercase Latin (CJK unaffected by
+    ``.lower()``). Pinyin normalization (V5 ADR-052) is deferred — recorded in
+    ADR-V6-011 决策6. Enough to dedupe ``"张三"`` vs ``" 张三 "`` today.
+    """
+    return " ".join(str(name).strip().split()).lower()
+
+
 def load_ptg_config() -> dict:
     """Read the ``plugins.ptg`` section from ``$HERMES_HOME/config.yaml``.
 
@@ -456,6 +466,99 @@ class PTGStore:
             memo_id=kw.get("memo_id"), timestamp=kw.get("timestamp"),
             input_mode=kw.get("input_mode", "text"), llm_call_id=kw.get("llm_call_id"),
         )
+
+    # ------------------------------------------------------------------
+    # Entity/relation graph materialization (ADR-V6-011 决策6)
+    # ------------------------------------------------------------------
+
+    def upsert_entity(self, *, user_id: str, entity_name: str, entity_type: str,
+                      properties: Optional[dict] = None) -> str:
+        """Insert-or-bump a graph node. Idempotent on (user, normalized name).
+
+        On re-mention: ``mention_count += 1``, ``last_seen_at``/``updated_at``
+        touched, ``version`` bumped, and ``properties`` shallow-merged (new keys
+        added, existing overwritten). Returns the entity id (stable across calls).
+        """
+        norm = _normalize_entity_name(entity_name)
+        now = _now_iso()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, properties FROM entities "
+                "WHERE user_id = ? AND entity_name_normalized = ? "
+                "AND deleted_at IS NULL",
+                (user_id, norm),
+            ).fetchone()
+            if row is not None:
+                eid = row["id"]
+                if properties:
+                    try:
+                        base = json.loads(row["properties"] or "{}")
+                    except Exception:  # noqa: BLE001 — never break a re-mention on bad JSON
+                        base = {}
+                    base.update(properties)
+                    self._conn.execute(
+                        "UPDATE entities SET mention_count = mention_count + 1, "
+                        "last_seen_at = ?, updated_at = ?, version = version + 1, "
+                        "properties = ? WHERE id = ?",
+                        (now, now, json.dumps(base, ensure_ascii=False), eid),
+                    )
+                else:
+                    self._conn.execute(
+                        "UPDATE entities SET mention_count = mention_count + 1, "
+                        "last_seen_at = ?, updated_at = ?, version = version + 1 "
+                        "WHERE id = ?",
+                        (now, now, eid),
+                    )
+                return eid
+            eid = _uuid()
+            self._conn.execute(
+                "INSERT INTO entities (id, user_id, entity_name, entity_name_normalized, "
+                "entity_type, properties, mention_count, first_seen_at, last_seen_at, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+                (eid, user_id, str(entity_name).strip(), norm, entity_type,
+                 json.dumps(properties or {}, ensure_ascii=False),
+                 now, now, now, now),
+            )
+            return eid
+
+    def upsert_relation(self, *, user_id: str, subject_id: str, object_id: str,
+                        relation_type: str, value: Optional[str] = None,
+                        confidence: Optional[float] = None) -> str:
+        """Insert-or-bump a graph edge. Idempotent on (user, subject, object, type).
+
+        On re-evidence: ``evidence_count += 1``, ``last_updated`` touched,
+        ``version`` bumped, confidence kept at the **max** of old/new (a later
+        high-confidence mention raises the edge; a low one never dilutes it).
+        Returns the relation id.
+        """
+        now = _now_iso()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, confidence FROM relations "
+                "WHERE user_id = ? AND subject_id = ? AND object_id = ? "
+                "AND relation_type = ? AND deleted_at IS NULL",
+                (user_id, subject_id, object_id, relation_type),
+            ).fetchone()
+            if row is not None:
+                rid = row["id"]
+                cur = row["confidence"] if row["confidence"] is not None else 0.0
+                new = confidence if confidence is not None else cur
+                self._conn.execute(
+                    "UPDATE relations SET evidence_count = evidence_count + 1, "
+                    "last_updated = ?, version = version + 1, confidence = ? "
+                    "WHERE id = ?",
+                    (now, max(cur, new), rid),
+                )
+                return rid
+            rid = _uuid()
+            self._conn.execute(
+                "INSERT INTO relations (id, user_id, subject_id, object_id, "
+                "relation_type, value, confidence, last_updated, evidence_count, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                (rid, user_id, subject_id, object_id, relation_type, value,
+                 confidence if confidence is not None else 0.5, now, now),
+            )
+            return rid
 
     # ------------------------------------------------------------------
     # C2 soft delete — NEVER hard DELETE on user-data tables
