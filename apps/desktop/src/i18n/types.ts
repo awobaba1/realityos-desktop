@@ -358,6 +358,11 @@ export interface Translations {
       translucencyDesc: string
       backdropTitle: string
       backdropDesc: string
+      launchViewTitle: string
+      launchViewDesc: string
+      launchViewChat: string
+      launchViewMemory: string
+      launchViewInsights: string
       embedsTitle: string
       embedsDesc: string
       embedsAsk: string

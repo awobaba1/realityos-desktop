@@ -442,6 +442,11 @@ export const en: Translations = {
       translucencyDesc: 'See your desktop through the whole window. macOS and Windows only.',
       backdropTitle: 'Chat Backdrop',
       backdropDesc: 'The faint statue image behind the conversation.',
+      launchViewTitle: 'Default View on Launch',
+      launchViewDesc: 'Which page the app opens on. Chat resumes your last conversation; Memory and Insights always open there first.',
+      launchViewChat: 'Chat',
+      launchViewMemory: 'Memory',
+      launchViewInsights: 'Insights',
       embedsTitle: 'Inline Embeds',
       embedsDesc:
         'Rich previews load from third-party sites (YouTube, X, …). Ask shows a placeholder until you allow each one; Always loads them automatically; Off keeps plain links.',

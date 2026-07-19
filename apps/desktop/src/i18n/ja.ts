@@ -328,6 +328,11 @@ export const ja = defineLocale({
       translucencyDesc: 'ウィンドウ全体を透過させてデスクトップを表示します。macOS と Windows のみ。',
       backdropTitle: 'チャット背景',
       backdropDesc: '会話の背後に表示される淡い彫像の画像。',
+      launchViewTitle: '起動時のデフォルトページ',
+      launchViewDesc: 'アプリ起動時に開くページ。チャットは前回の会話を再開し、記憶とインサイトは毎回そのページを最初に開きます。',
+      launchViewChat: 'チャット',
+      launchViewMemory: '記憶',
+      launchViewInsights: 'インサイト',
       embedsTitle: 'インライン埋め込み',
       embedsDesc:
         'リッチプレビューは第三者サイト（YouTube、X など）から読み込まれます。確認は許可するまでプレースホルダーを表示し、常には自動で読み込み、オフはリンクのままにします。',

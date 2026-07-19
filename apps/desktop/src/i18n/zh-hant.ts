@@ -320,6 +320,11 @@ export const zhHant = defineLocale({
       translucencyDesc: '讓整個視窗透出桌面。僅支援 macOS 與 Windows。',
       backdropTitle: '聊天背景',
       backdropDesc: '對話後方那張淡淡的雕像圖片。',
+      launchViewTitle: '啟動時預設頁面',
+      launchViewDesc: '應用啟動後落在哪個頁面。聊天會恢復上次的對話；記憶和洞察則每次都先開啟該頁面。',
+      launchViewChat: '聊天',
+      launchViewMemory: '記憶',
+      launchViewInsights: '洞察',
       embedsTitle: '內嵌預覽',
       embedsDesc:
         '豐富預覽會從第三方網站（YouTube、X 等）載入。詢問會在你允許前顯示佔位符；一律會自動載入；關閉則保留純連結。',

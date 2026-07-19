@@ -14,6 +14,7 @@ import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import { $backdrop, setBackdrop } from '@/store/backdrop'
 import { $embedAllowed, $embedMode, clearEmbedAllowed, type EmbedMode, setEmbedMode } from '@/store/embed-consent'
+import { $launchView, type LaunchView, setLaunchView } from '@/store/launch-view'
 import { $activeGatewayProfile, $profiles, normalizeProfileKey } from '@/store/profile'
 import { $toolViewMode, setToolViewMode } from '@/store/tool-view'
 import { $translucency, setTranslucency } from '@/store/translucency'
@@ -250,6 +251,7 @@ export function AppearanceSettings() {
   const embedAllowed = useStore($embedAllowed)
   const translucency = useStore($translucency)
   const backdrop = useStore($backdrop)
+  const launchView = useStore($launchView)
   const installs = useStore($marketplaceInstalls)
   const profiles = useStore($profiles)
   const activeProfileKey = normalizeProfileKey(useStore($activeGatewayProfile))
@@ -293,6 +295,12 @@ export function AppearanceSettings() {
     { id: 'off', label: a.embedsOff }
   ] as const satisfies readonly { id: EmbedMode; label: string }[]
 
+  const launchViewOptions = [
+    { id: 'chat', label: a.launchViewChat },
+    { id: 'memory', label: a.launchViewMemory },
+    { id: 'insights', label: a.launchViewInsights }
+  ] as const satisfies readonly { id: LaunchView; label: string }[]
+
   const uiScaleOptions = UI_SCALE_PRESETS.map(preset => ({ id: preset, label: `${preset}%` }))
 
   const matchedScalePreset = matchUiScalePreset(zoomPercent)
@@ -310,6 +318,21 @@ export function AppearanceSettings() {
             action={<LanguageSwitcher />}
             description={isSavingLocale ? t.language.saving : t.language.description}
             title={t.language.label}
+          />
+
+          <ListRow
+            action={
+              <SegmentedControl
+                onChange={id => {
+                  triggerHaptic('selection')
+                  setLaunchView(id)
+                }}
+                options={launchViewOptions}
+                value={launchView}
+              />
+            }
+            description={a.launchViewDesc}
+            title={a.launchViewTitle}
           />
 
           <ListRow

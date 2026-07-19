@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import { closeActiveTab } from '@/app/chat/close-tab'
 import { storedSessionIdForNotification } from '@/lib/session-ids'
+import { getLaunchView, launchViewRoute } from '@/store/launch-view'
 import { respondToApprovalAction } from '@/store/native-notifications'
 import { getRememberedRoute, getRememberedSessionId, setRememberedRoute, setRememberedSessionId } from '@/store/session'
 import { onSessionsChanged } from '@/store/session-sync'
@@ -74,8 +75,11 @@ export function useDesktopIntegrations({
   const restoredRef = useRef(false)
 
   // Restore once on cold start — only when the renderer booted at the default
-  // route (a hidden-then-shown window keeps its own route). Prefer the full
-  // remembered route (covers pages); fall back to the last session id.
+  // route (a hidden-then-shown window keeps its own route). ADR-V6-036: an
+  // explicit launch view (memory/insights) wins first — it's the user's chosen
+  // "home". Then prefer the full remembered route (covers pages); fall back to
+  // the last session id. 'chat' (default) yields no launch-view override, so the
+  // legacy resume behavior below is unchanged.
   useEffect(() => {
     if (restoredRef.current || locationPathname !== NEW_CHAT_ROUTE) {
       restoredRef.current = true
@@ -84,6 +88,15 @@ export function useDesktopIntegrations({
     }
 
     restoredRef.current = true
+
+    const launchTarget = launchViewRoute(getLaunchView())
+
+    if (launchTarget && !isOverlayView(appViewForPath(launchTarget))) {
+      navigate(launchTarget, { replace: true })
+
+      return
+    }
+
     const route = getRememberedRoute()
 
     if (route && route !== NEW_CHAT_ROUTE && !isOverlayView(appViewForPath(route))) {
