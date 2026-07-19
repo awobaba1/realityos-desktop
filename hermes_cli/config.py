@@ -3410,8 +3410,22 @@ DEFAULT_CONFIG = {
         "region": "global",
     },
 
+    # RealityOS V6 (ADR-V6-024): the capture-surface observer plugin is
+    # enabled-by-default so the advertised "操作电脑 capture surface"
+    # (post_tool_call → tool_events) is live on every FRESH install. The
+    # observer wires post_tool_call / pre_gateway_dispatch / on_session_end
+    # hooks that turn agent actions into personal-timeline assets; without it
+    # the capture surface is dead. Canonical path-derived key, matching what
+    # `hermes plugins enable observability/ptg_capture` writes. Existing
+    # installs get the same via the v33→v34 migration. A user who wants it
+    # off adds the key to plugins.disabled (explicit-disable-wins).
+    "plugins": {
+        "enabled": ["observability/ptg_capture"],
+        "disabled": [],
+    },
+
     # Config schema version - bump this when adding new required fields
-    "_config_version": 33,
+    "_config_version": 34,
 }
 
 # =============================================================================
@@ -6291,6 +6305,54 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                     "  ✓ Removed deprecated delegation.max_async_children — "
                     "delegation.max_concurrent_children now caps background "
                     "delegations too."
+                )
+
+    # ── Version 33 → 34: enable the V6 capture-surface observer by default ──
+    # The post_tool_call / pre_gateway_dispatch / on_session_end hooks that
+    # turn agent actions into personal-timeline assets live in the bundled
+    # ``observability/ptg_capture`` plugin. The v20→v21 opt-in migration
+    # grandfathered only USER-installed plugins — bundled plugins ship OFF,
+    # so the advertised "操作电脑 capture surface" was silently dead on every
+    # install (R6/R12/R4 atoms never captured). Add the canonical key to
+    # plugins.enabled so the hooks register AND ``hermes plugins list`` reports
+    # it honestly. Explicit-disable wins: a user who added the key (or its bare
+    # leaf name) to plugins.disabled is left alone. Idempotent. (ADR-V6-024)
+    if current_ver < 34:
+        config = read_raw_config()
+        plugins_cfg = config.get("plugins")
+        if not isinstance(plugins_cfg, dict):
+            plugins_cfg = {}
+        disabled = plugins_cfg.get("disabled", []) or []
+        if not isinstance(disabled, list):
+            disabled = []
+        disabled_set = set(disabled)
+        enabled = plugins_cfg.get("enabled", []) or []
+        if not isinstance(enabled, list):
+            enabled = []
+        enabled_set = set(enabled)
+        _V6_CAPTURE_KEY = "observability/ptg_capture"
+        _V6_CAPTURE_LEAF = _V6_CAPTURE_KEY.split("/")[-1]
+        if (
+            _V6_CAPTURE_KEY not in disabled_set
+            and _V6_CAPTURE_LEAF not in disabled_set
+            and _V6_CAPTURE_KEY not in enabled_set
+            and _V6_CAPTURE_LEAF not in enabled_set
+        ):
+            enabled_set.add(_V6_CAPTURE_KEY)
+            plugins_cfg["enabled"] = sorted(enabled_set)
+            config["plugins"] = plugins_cfg
+            _persist_migration(config)
+            results["config_added"].append(
+                "plugins.enabled += observability/ptg_capture "
+                "(V6 capture surface default-on, ADR-V6-024)"
+            )
+            if not quiet:
+                print(
+                    "  ✓ Enabled bundled V6 capture observer "
+                    "(observability/ptg_capture) — post_tool_call / "
+                    "pre_gateway_dispatch / on_session_end hooks now register "
+                    "by default. Disable with `hermes plugins disable "
+                    "observability/ptg_capture`."
                 )
 
     # ── Post-migration: disable exfiltration-shaped MCP stdio entries ──
