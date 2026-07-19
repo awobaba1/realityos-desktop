@@ -75,6 +75,13 @@ class PTGProvider(MemoryProvider):
         # tests pass a bare config with ``atomize: False`` to stay deterministic.
         self._atomizer: Optional[Atomizer] = None
         self._atomize_enabled = bool(self._config.get("atomize", True))
+        # Shutdown drain (ADR-V6-012): track in-flight atomize daemon threads so
+        # shutdown() can JOIN them before closing the store. Without this, a
+        # thread mid-extraction when close() fires writes to a closed DB → the
+        # atom is lost (C2/C7 data loss on shutdown). Bounded join; we never
+        # block forever on a hung LLM call.
+        self._atomize_threads: List["threading.Thread"] = []
+        self._atomize_threads_lock = threading.Lock()
 
     # -- core lifecycle ---------------------------------------------------
 
@@ -190,18 +197,31 @@ class PTGProvider(MemoryProvider):
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         if not self._store or not query:
             return ""
+        blocks: list[str] = []
         try:
             hits = self._store.search_memos_fts(query, user_id=self._user_id, limit=5)
         except Exception as exc:  # noqa: BLE001
             logger.debug("PTG prefetch failed: %s", exc)
-            return ""
-        if not hits:
-            return ""
-        lines = ["## RealityOS recall (prior captured turns)"]
-        for h in hits:
-            text = (h.get("source_text") or "").strip().replace("\n", " ")
-            lines.append(f"- {text[:200]}")
-        return "\n".join(lines)
+            hits = []
+        if hits:
+            lines = ["## RealityOS recall (prior captured turns)"]
+            for h in hits:
+                text = (h.get("source_text") or "").strip().replace("\n", " ")
+                lines.append(f"- {text[:200]}")
+            blocks.append("\n".join(lines))
+        # §4.3A: fold the entity/relation graph into context so the model sees
+        # structured ties ("你与张三互动过 3 次"), not just raw memo text. The
+        # Atomizer materialized this graph; without rendering it back, it was
+        # write-only (Explore recon finding #3). Empty when no graph hits.
+        try:
+            from .recall import render_relations_block
+            graph_block = render_relations_block(
+                self._store, self._user_id, query, token_budget=800)
+            if graph_block:
+                blocks.append(graph_block)
+        except Exception as exc:  # noqa: BLE001 — recall never breaks the loop
+            logger.debug("PTG prefetch graph render failed: %s", exc)
+        return "\n\n".join(blocks)
 
     # -- capture ----------------------------------------------------------
 
@@ -267,7 +287,12 @@ class PTGProvider(MemoryProvider):
             except Exception as exc:  # noqa: BLE001 — observer surface: never escape
                 logger.warning("PTG background atomize failed for memo %s: %s", memo_id, exc)
 
-        threading.Thread(target=_run, name="ptg-atomize", daemon=True).start()
+        t = threading.Thread(target=_run, name="ptg-atomize", daemon=True)
+        with self._atomize_threads_lock:
+            # Prune dead threads so the list can't grow without bound.
+            self._atomize_threads = [x for x in self._atomize_threads if x.is_alive()]
+            self._atomize_threads.append(t)
+        t.start()
 
     # -- tools ------------------------------------------------------------
 
@@ -295,10 +320,24 @@ class PTGProvider(MemoryProvider):
     # -- shutdown ---------------------------------------------------------
 
     def shutdown(self) -> None:
-        # Stop scheduling new atomizations first; in-flight daemon threads are
-        # fail-open and die with the process.
+        # Stop scheduling new atomizations first.
         self._atomizer = None
         self._atomize_enabled = False
+        # DRAIN in-flight extraction threads BEFORE closing the store. A thread
+        # mid-extraction (LLM call done, writing atoms) would otherwise hit a
+        # closed DB and lose the atom (C2/C7). Bounded join: timeout is the
+        # LLM call budget + a margin, so a hung provider can't hang shutdown.
+        drain_timeout = float(self._config.get("shutdown_drain_timeout", 35.0))
+        with self._atomize_threads_lock:
+            live = [t for t in self._atomize_threads if t.is_alive()]
+        for t in live:
+            t.join(timeout=drain_timeout)
+        still_alive = [t for t in live if t.is_alive()]
+        if still_alive:
+            logger.warning(
+                "PTG shutdown: %d atomize thread(s) still alive after %.1fs drain "
+                "(hung LLM call?); proceeding to close — their atoms may be lost.",
+                len(still_alive), drain_timeout)
         if self._store is not None:
             try:
                 self._store.close()

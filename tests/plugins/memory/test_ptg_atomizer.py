@@ -403,6 +403,15 @@ def test_sync_turn_end_to_end_writes_atoms_via_mock_llm(tmp_path):
         def start(self):
             self._target()  # run synchronously instead of spawning
 
+        # The work runs inline in start(), so by the time the thread is tracked
+        # it is already complete. Implement the Thread interface the shutdown
+        # drain (ADR-V6-012) queries so this double stays faithful.
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            return None
+
     prov_mod.threading.Thread = _InlineThread
     try:
         p.sync_turn("今天和张三开会讨论厦门国贸的项目", "assistant reply")

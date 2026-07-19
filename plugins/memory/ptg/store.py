@@ -561,6 +561,160 @@ class PTGStore:
             return rid
 
     # ------------------------------------------------------------------
+    # Read / recall — the structured-data recall surface (ADR-V6-012)
+    # ------------------------------------------------------------------
+    # The Atomizer writes R-atoms into the four event tables + the entity/
+    # relation graph. Until these read APIs existed, that structured data was
+    # WRITE-ONLY — the user could never recall "what did I say about 张三" from
+    # the atoms, only from raw memo text (search_memos_fts). These methods are
+    # the read half of the brain: they power (a) the eval harness, which must
+    # measure what ACTUALLY landed post C5-gate (not raw LLM output), and
+    # (b) the prefetch renderer (§4.3A), which folds the graph into context.
+
+    def recent_atoms(self, *, user_id: str, memo_id: Optional[str] = None,
+                     limit: int = 500) -> List[Dict[str, Any]]:
+        """Reconstruct R-atoms from the four event tables — what actually landed.
+
+        Returns atom-dicts shaped for ``match_atom`` (eval) and for rendering.
+        R3/R2/R7/R1/R0 all included. A meaning_event with intent_class=
+        'Need_To_Do' reconstructs as R2_Task; any other intent_class reconstructs
+        as R7_Expression (the Atomizer's write mapping, inverted). ``confidence``
+        prefers ``relation_confidence`` (the per-atom gate value) and falls back
+        to ``confidence_base``. Ordered timestamp DESC. Respects soft-delete.
+
+        ``memo_id`` narrows to one memo (the eval reconstructs per-sample).
+        """
+        atoms: List[Dict[str, Any]] = []
+        memo_clause = "AND memo_id = ?" if memo_id else ""
+        memo_params: List[Any] = [memo_id] if memo_id else []
+        with self._lock:
+            for r in self._conn.execute(
+                f"""SELECT person_name, mention_context, sentiment, interaction_type,
+                           confidence_base, relation_confidence, timestamp
+                    FROM identity_events
+                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}
+                    ORDER BY timestamp DESC LIMIT ?""",
+                [user_id, *memo_params, limit],
+            ).fetchall():
+                atoms.append({
+                    "type": "R3_Person", "person_name": r["person_name"],
+                    "mention_context": r["mention_context"], "sentiment": r["sentiment"],
+                    "interaction_type": r["interaction_type"],
+                    "confidence": r["relation_confidence"]
+                    if r["relation_confidence"] is not None else r["confidence_base"],
+                    "_ts": r["timestamp"],
+                })
+            for r in self._conn.execute(
+                f"""SELECT intent_class, task_description, urgency, deadline,
+                           confidence_base, relation_confidence, timestamp
+                    FROM meaning_events
+                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}
+                    ORDER BY timestamp DESC LIMIT ?""",
+                [user_id, *memo_params, limit],
+            ).fetchall():
+                conf = (r["relation_confidence"]
+                        if r["relation_confidence"] is not None else r["confidence_base"])
+                if r["intent_class"] == "Need_To_Do":
+                    atoms.append({
+                        "type": "R2_Task", "task_description": r["task_description"],
+                        "urgency": r["urgency"], "deadline": r["deadline"],
+                        "confidence": conf, "_ts": r["timestamp"],
+                    })
+                else:
+                    atoms.append({
+                        "type": "R7_Expression", "intent_class": r["intent_class"],
+                        "content_summary": r["task_description"],
+                        "confidence": conf, "_ts": r["timestamp"],
+                    })
+            for r in self._conn.execute(
+                f"""SELECT state_type, direction, intensity, confidence_base,
+                           relation_confidence, timestamp
+                    FROM feeling_events
+                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}
+                    ORDER BY timestamp DESC LIMIT ?""",
+                [user_id, *memo_params, limit],
+            ).fetchall():
+                atoms.append({
+                    "type": "R1_SelfState", "state_type": r["state_type"],
+                    "direction": r["direction"], "intensity": r["intensity"],
+                    "confidence": (r["relation_confidence"]
+                                   if r["relation_confidence"] is not None else r["confidence_base"]),
+                    "_ts": r["timestamp"],
+                })
+            for r in self._conn.execute(
+                f"""SELECT entity_name, entity_category, mention_context,
+                           confidence_base, relation_confidence, timestamp
+                    FROM entity_events
+                    WHERE user_id = ? AND deleted_at IS NULL {memo_clause}
+                    ORDER BY timestamp DESC LIMIT ?""",
+                [user_id, *memo_params, limit],
+            ).fetchall():
+                atoms.append({
+                    "type": "R0_Entity", "entity_name": r["entity_name"],
+                    "entity_category": r["entity_category"],
+                    "mention_context": r["mention_context"],
+                    "confidence": (r["relation_confidence"]
+                                   if r["relation_confidence"] is not None else r["confidence_base"]),
+                    "_ts": r["timestamp"],
+                })
+        atoms.sort(key=lambda a: a.get("_ts") or "", reverse=True)
+        return atoms[:limit]
+
+    def search_entities(self, user_id: str, query: str, *,
+                        limit: int = 10) -> List[Dict[str, Any]]:
+        """Find graph nodes whose name matches any query token (CJK-correct LIKE).
+
+        Mirrors search_memos_fts's per-token OR-join so 2-char Chinese names
+        (张三/北京) hit. Returns dicts (id, entity_name, entity_type,
+        mention_count). Ordered by mention_count DESC (most-mentioned first).
+        Respects soft-delete.
+        """
+        query = (query or "").strip()
+        if not query:
+            return []
+        tokens = [t for t in query.split() if t]
+        if not tokens:
+            return []
+        or_clauses = " OR ".join(["entity_name LIKE ?"] * len(tokens))
+        like_params = [f"%{t}%" for t in tokens]
+        with self._lock:
+            rows = self._conn.execute(
+                f"""SELECT id, entity_name, entity_type, mention_count
+                    FROM entities
+                    WHERE user_id = ? AND deleted_at IS NULL
+                      AND ({or_clauses})
+                    ORDER BY mention_count DESC, last_seen_at DESC LIMIT ?""",
+                [user_id, *like_params, limit],
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def relations_for_user(self, user_id: str, *, entity_id: Optional[str] = None,
+                           limit: int = 50) -> List[Dict[str, Any]]:
+        """Graph edges for a user, optionally narrowed to one entity's neighbourhood.
+
+        Joins entity names so the renderer can format "subject → object" without
+        a second round-trip. Returns dicts (relation_type, value, confidence,
+        evidence_count, subject_name, subject_type, object_name, object_type).
+        Ordered confidence DESC, evidence_count DESC. Respects soft-delete.
+        """
+        ent_clause = "AND (r.subject_id = ? OR r.object_id = ?)" if entity_id else ""
+        ent_params: List[Any] = [entity_id, entity_id] if entity_id else []
+        with self._lock:
+            rows = self._conn.execute(
+                f"""SELECT r.subject_id, r.object_id, r.relation_type, r.value,
+                           r.confidence, r.evidence_count,
+                           s.entity_name AS subject_name, s.entity_type AS subject_type,
+                           o.entity_name AS object_name, o.entity_type AS object_type
+                    FROM relations r
+                    JOIN entities s ON s.id = r.subject_id
+                    JOIN entities o ON o.id = r.object_id
+                    WHERE r.user_id = ? AND r.deleted_at IS NULL {ent_clause}
+                    ORDER BY r.confidence DESC, r.evidence_count DESC LIMIT ?""",
+                [user_id, *ent_params, limit],
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
     # C2 soft delete — NEVER hard DELETE on user-data tables
     # ------------------------------------------------------------------
 

@@ -1612,6 +1612,22 @@ DEFAULT_CONFIG = {
             "extra_body": {},
             "reasoning_effort": "",  # per-task thinking level: none|minimal|low|medium|high|xhigh|max|ultra (empty = provider default)
         },
+        # RealityOS V6 Atomizer — HL-12 extraction (turn → R-atoms, ADR-V6-011).
+        # "auto" + empty model = inherit your MAIN chat model, so a user who
+        # configured one model for chat gets atomization with ZERO extra config.
+        # Override only to route extraction to a cheaper/faster model. Explore
+        # recon confirmed: without this block the task key is unknown to the
+        # auxiliary resolver and fresh installs silently DLQ every memo (0
+        # atoms) — this default closes that gap.
+        "extraction": {
+            "provider": "auto",
+            "model": "",
+            "base_url": "",
+            "api_key": "",
+            "timeout": 30,
+            "extra_body": {},
+            "reasoning_effort": "",
+        },
         # Note: session_search no longer uses an auxiliary LLM (PR #27590 —
         # single-shape tool returns DB content directly). The old
         # ``auxiliary.session_search.*`` block was removed here. Existing

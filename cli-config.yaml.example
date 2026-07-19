@@ -551,10 +551,11 @@ prompt_caching:
 #                           #     enable_thinking: false
 #
 #   # RealityOS V6 Atomizer — HL-12 extraction (turn → R-atoms). ADR-V6-011.
-#   # Empty provider/model = inherit your main chat model (recommended). The
-#   # Atomizer runs in a background thread after each captured turn; this block
-#   # is optional — if absent, the main model is used. Disable atomization via
-#   # plugins.ptg.atomize: false.
+#   # Built-in default (ADR-V6-012): provider="auto" + empty model inherits your
+#   # MAIN chat model, so atomization needs ZERO extra config once you pick a
+#   # main model via `hermes model`. The Atomizer runs in a background thread
+#   # after each captured turn. Override here only to route extraction to a
+#   # cheaper/faster model. Disable atomization via plugins.ptg.atomize: false.
 #   extraction:
 #     provider: "auto"
 #     model: ""

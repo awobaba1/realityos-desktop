@@ -272,3 +272,68 @@ def test_v6_default_memory_provider_is_ptg():
     from hermes_cli.config import DEFAULT_CONFIG
 
     assert DEFAULT_CONFIG["memory"]["provider"] == "ptg"
+
+
+# ---------------------------------------------------------------------------
+# Shutdown drain (ADR-V6-012) — in-flight atomize threads must be drained
+# before the store closes, else their writes hit a closed DB and the atom is
+# lost (C2/C7 data loss on shutdown). Two contract sides: drains when it can,
+# bounds when it can't.
+# ---------------------------------------------------------------------------
+
+def _atom_json(person="张三", conf=0.95):
+    return json.dumps({"summary": "x", "atoms": [
+        {"type": "R3_Person", "person_name": person, "confidence": conf}]})
+
+
+def test_shutdown_drains_finishing_atomize_thread(provider):
+    """A completing extraction thread is JOINED — its atom lands before close."""
+    import time
+    from types import SimpleNamespace
+    from plugins.memory.ptg.atomizer import Atomizer
+
+    done = []
+    def slow_caller(**kwargs):
+        time.sleep(0.4)  # simulate LLM latency across the shutdown boundary
+        done.append(True)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=_atom_json()))],
+            model="test", usage={"prompt_tokens": 10, "completion_tokens": 5}, provider="test")
+    db_path = str(provider._store.db_path)
+    provider._atomizer = Atomizer(provider._store, user_id=provider._user_id,
+                                  llm_caller=slow_caller)
+    provider.sync_turn(user_content="提到张三", assistant_content="ok")
+    time.sleep(0.05)  # let the daemon thread start + enter the LLM call
+    provider.shutdown()  # must drain (join) the in-flight thread, not kill it
+    assert done  # the LLM call completed (thread was drained, not abandoned)
+    # The atom landed despite shutdown — reopen the store to prove it.
+    from plugins.memory.ptg.store import PTGStore
+    s = PTGStore(db_path=db_path)
+    atoms = s.recent_atoms(user_id=provider._user_id)
+    s.close()
+    assert any(a["type"] == "R3_Person" and a["person_name"] == "张三" for a in atoms)
+
+
+def test_shutdown_drain_is_bounded_against_hung_llm(provider):
+    """A hung LLM call cannot hang shutdown — the drain timeout bounds it."""
+    import threading
+    import time
+    from types import SimpleNamespace
+    from plugins.memory.ptg.atomizer import Atomizer
+
+    release = threading.Event()
+
+    def hung_caller(**kwargs):
+        release.wait(timeout=30)  # never resolves during the test
+        raise RuntimeError("unreachable")
+    provider._atomizer = Atomizer(provider._store, user_id=provider._user_id,
+                                  llm_caller=hung_caller)
+    provider.sync_turn(user_content="x", assistant_content="y")
+    time.sleep(0.05)
+    provider._config["shutdown_drain_timeout"] = 0.3  # short bounded drain
+    start = time.monotonic()
+    provider.shutdown()
+    elapsed = time.monotonic() - start
+    assert elapsed < 2.0  # did not hang — bounded by the 0.3s drain + margin
+    assert provider._store is None  # store closed despite the hung thread
+    release.set()  # let the daemon thread finish + die cleanly
