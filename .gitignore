@@ -28,6 +28,10 @@ __pycache__/
 .uv-cache/
 compose.hermes.local.yml
 export*
+# un-ignore the V5→V6 migration exporter (matches `export*` above; the test
+# tests/test_export_v5.py loads it by path, so it MUST ship in the repo —
+# without this it was silently gitignored and CI went red on every run).
+!scripts/migrate_v5/export_v5.py
 __pycache__/model_tools.cpython-310.pyc
 __pycache__/web_tools.cpython-310.pyc
 logs/
