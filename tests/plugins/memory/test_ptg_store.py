@@ -599,6 +599,52 @@ def test_reconcile_creates_quality_metrics_on_old_db(tmp_path):
     s2.close()
 
 
+def test_reconcile_heals_quality_metrics_legacy_drift(tmp_path):
+    """ADR-V6-027 — a V5-era DB whose quality_metrics has the old `date` column
+    + no user_id/C2 cols (the ~/.realityos/ptg.db reality: legacy rows carry
+    `date`, no version/deleted_at) is healed on reopen. _reconcile_columns
+    ALTERs the v4 cols in; _backfill_legacy_data copies `date`→`metric_date`.
+    Legacy data survives; the old column is kept (C2 nothing-lost); the
+    run_eval --ptg-db bridge unblocks (insert_quality_metric works post-heal)."""
+    db = tmp_path / "ptg.db"
+    s = PTGStore(db_path=str(db))
+    # Simulate the V5-era quality_metrics schema (old `date`, no C2/user_id).
+    s._conn.execute("DROP TABLE quality_metrics")
+    s._conn.execute(
+        "CREATE TABLE quality_metrics (id TEXT PRIMARY KEY, date TEXT, "
+        "metric_type TEXT, atom_type TEXT, value REAL, sample_size INTEGER, "
+        "note TEXT)")
+    s._conn.execute(
+        "INSERT INTO quality_metrics(id, date, metric_type, atom_type, value, "
+        "sample_size, note) VALUES ('legacy-1','2026-06-01','atom_precision',"
+        "'R3_Person',0.71,50,'v5-era')")
+    s._conn.commit()
+    assert "metric_date" not in _columns(s._conn, "quality_metrics")
+    assert "deleted_at" not in _columns(s._conn, "quality_metrics")
+    s.close()
+
+    # Reopen → apply_schema heals the drift.
+    s2 = PTGStore(db_path=str(db))
+    cols = _columns(s2._conn, "quality_metrics")
+    assert {"user_id", "metric_date", "version", "deleted_at", "created_at"} <= cols
+    # Legacy row survived AND was backfilled (date → metric_date); old col kept.
+    row = s2._conn.execute(
+        "SELECT date, metric_date, value, metric_type FROM quality_metrics "
+        "WHERE id='legacy-1'").fetchone()
+    assert row is not None
+    assert row[0] == "2026-06-01"   # old `date` preserved (C2 nothing-lost)
+    assert row[1] == "2026-06-01"   # metric_date backfilled from date
+    assert row[2] == 0.71 and row[3] == "atom_precision"
+    # insert_quality_metric now works on the healed table (bridge unblocks).
+    s2.insert_quality_metric(user_id="founder", metric_date="2026-07-20",
+                             metric_type="atom_recall", value=0.85,
+                             atom_type=None, sample_size=50, note="post-heal")
+    n = s2._conn.execute("SELECT COUNT(*) FROM quality_metrics").fetchone()[0]
+    assert n == 2  # legacy row + new insert
+    s2.close()
+
+
+
 # ---------------------------------------------------------------------------
 # tool_events (§9#4 + §0.6 — tool-execution capture surface sink, v5)
 # ---------------------------------------------------------------------------

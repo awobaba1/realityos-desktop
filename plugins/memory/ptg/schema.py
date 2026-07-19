@@ -508,9 +508,24 @@ _RECONCILE_COLUMNS: Dict[str, Dict[str, str]] = {
     # relations v4 terminal-state columns (§9#1/#5) — additive on existing DBs.
     "relations": {"delta": "TEXT", "completeness": "REAL",
                   "consent_tag": "TEXT"},
-    # quality_metrics is new in v4 — created whole by _SCHEMA_SQL, nothing to
-    # reconcile. Listed for completeness/discoverability.
-    "quality_metrics": {},
+    # quality_metrics v4 columns that legacy V5-era DBs (e.g. ~/.realityos/ptg.db
+    # predating the desktop fork) lack: V5 created it with the old `date` column
+    # and no user_id / C2 cols. CREATE TABLE IF NOT EXISTS no-ops on the existing
+    # table, so these must be ALTERed in here — otherwise insert_quality_metric
+    # column-mismatches and the run_eval --ptg-db bridge silently fails (C7
+    # swallows the error), the "live quality_metrics 0 行" deadlock (ADR-V6-027).
+    # The `date`→`metric_date` rename is backfilled by _backfill_legacy_data.
+    "quality_metrics": {
+        "user_id": "TEXT",                              # legacy rows lack it; inserts always supply
+        "metric_date": "TEXT",                          # v4: renamed from `date`
+        "version": "INTEGER NOT NULL DEFAULT 1",        # C2
+        "deleted_at": "TEXT",                           # C2
+        # created_at is NOT NULL DEFAULT CURRENT_TIMESTAMP in the fresh DDL, but
+        # SQLite forbids ADD COLUMN with NOT NULL + a CURRENT_TIMESTAMP default;
+        # reconcile it as nullable (legacy rows predate it → NULL is fine; every
+        # insert supplies _now_iso() explicitly).
+        "created_at": "TEXT",
+    },
     # tool_events is new in v5 — created whole by _SCHEMA_SQL (§9#4 capture
     # surface sink). Listed for discoverability; nothing additive to reconcile.
     "tool_events": {},
@@ -577,9 +592,17 @@ def validate_embedding_dim(blob: bytes, expected_dim: int) -> Optional[str]:
 
 def apply_schema(conn) -> None:
     """Create all PTG tables + indexes + triggers + FTS, then reconcile any
-    columns missing on an existing DB. Idempotent."""
-    conn.executescript(_SCHEMA_SQL)
+    columns missing on an existing DB. Idempotent.
+
+    Order matters: ``_reconcile_columns`` runs BEFORE ``executescript`` so that
+    indexes referencing reconciled columns (``idx_qm_date_type`` on metric_date,
+    ``idx_meaning_overdue`` on is_overdue) find the column present — otherwise
+    executescript aborts mid-script on a legacy DB (leaving later tables like
+    ptg_meta uncreated). Tables absent on a fresh DB are skipped by reconcile
+    and created whole by executescript."""
     _reconcile_columns(conn)
+    conn.executescript(_SCHEMA_SQL)
+    _backfill_legacy_data(conn)
     _ensure_fts_trigram(conn)
     # Record the schema version once (additive — never overwrite per C2/C6).
     conn.execute(
@@ -619,6 +642,11 @@ def _ensure_fts_trigram(conn) -> None:
 def _reconcile_columns(conn) -> None:
     """Additively ALTER any missing columns declared in _RECONCILE_COLUMNS.
 
+    Runs BEFORE ``executescript(_SCHEMA_SQL)`` so indexes that reference
+    reconciled columns succeed on legacy DBs. Tables that don't exist yet
+    (fresh DB, or not-yet-created) are skipped — executescript creates them
+    whole with the full column set.
+
     Mirrors holographic's PRAGMA-table_info + ALTER TABLE pattern but
     table-driven. Never drops or renames (C2 nothing-lost)."""
     for table, cols in _RECONCILE_COLUMNS.items():
@@ -627,7 +655,36 @@ def _reconcile_columns(conn) -> None:
         except Exception as exc:  # noqa: BLE001 — table may not exist yet on first run
             logger.debug("reconcile: %s not introspectable (%s)", table, exc)
             continue
+        if not existing:
+            continue  # table absent — executescript creates it fresh; nothing to ALTER
         for col, decl in cols.items():
             if col not in existing:
-                logger.info("PTG migrate: ALTER TABLE %s ADD COLUMN %s %s", table, col, decl)
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+                try:
+                    logger.info("PTG migrate: ALTER TABLE %s ADD COLUMN %s %s", table, col, decl)
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+                except Exception as exc:  # noqa: BLE001 — col somehow present/unsupported
+                    logger.debug("reconcile: %s.%s add skipped (%s)", table, col, exc)
+
+
+def _backfill_legacy_data(conn) -> None:
+    """One-time idempotent data backfills for columns renamed/re-homed across
+    schema versions. Runs after _reconcile_columns so the target columns exist.
+
+    Each statement is guarded idempotent (only touches rows where the target is
+    still NULL) and C2-safe (never deletes). A rename can't be expressed as ADD
+    COLUMN, so this is the sole non-additive heal path — and it only copies
+    forward, never destroys the source column (C2 nothing-lost)."""
+    # v4 quality_metrics renamed `date` -> `metric_date`. Legacy V5-era DBs
+    # (e.g. ~/.realityos/ptg.db predating the desktop fork) carry the old
+    # `date`; reconcile ADDs `metric_date` empty for pre-existing rows and this
+    # copies surviving rows forward. Skipped on fresh DBs (no `date` column).
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(quality_metrics)")}
+    except Exception as exc:  # noqa: BLE001 — table may not exist yet on first run
+        logger.debug("backfill: quality_metrics not introspectable (%s)", exc)
+        return
+    if "metric_date" in cols and "date" in cols:
+        conn.execute(
+            "UPDATE quality_metrics SET metric_date = date "
+            "WHERE metric_date IS NULL AND date IS NOT NULL"
+        )
