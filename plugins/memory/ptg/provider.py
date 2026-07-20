@@ -29,6 +29,7 @@ from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 
 from .atomizer import Atomizer
+from .citation import CITATION_INSTRUCTION, ground_answer, looks_like_history_claim, number_chunks
 from .confidence import ConfidenceEngine
 from .store import PTGStore
 
@@ -38,6 +39,22 @@ logger = logging.getLogger(__name__)
 # many simultaneous LLM calls. Single-founder desktop pace → 2 is ample; queued
 # atomizations run as slots free (the turn itself returns immediately).
 _ATOMIZE_CONCURRENCY = threading.Semaphore(2)
+
+
+def _query_terms(query: str) -> List[str]:
+    """Split a recall query into ≥2-char term tokens for the history-claim
+    heuristic. Splits on whitespace and common CJK/ASCII punctuation; for a
+    space-less CJK query, the whole string is returned as one term too (so an
+    answer echoing the query still matches via substring)."""
+    import re
+    q = (query or "").strip()
+    if not q:
+        return []
+    parts = [p for p in re.split(r"[\s,，、;；。./]+", q) if p]
+    terms = [p for p in parts if len(p) >= 2]
+    if q not in terms and len(q) >= 2:
+        terms.append(q)
+    return terms
 
 
 PTG_SEARCH_SCHEMA = {
@@ -88,6 +105,13 @@ class PTGProvider(MemoryProvider):
         # close() is a use-after-close segfault (caught by faulthandler; the
         # ADR-V6-015 fix).
         self._backup_thread = None
+        # G1 citation gate (ADR-V6-043 / F2): the recall hits + query from the
+        # LAST prefetch / ptg_search, kept so sync_turn can validate the agent's
+        # answer against the chunks actually in scope. The agent loop is
+        # sequential (prefetch → [tool calls] → answer → sync_turn) on a
+        # single-founder desktop, so a plain instance slot suffices (no lock).
+        self._last_recall_hits: List[Dict[str, Any]] = []
+        self._last_query: str = ""
 
     # -- core lifecycle ---------------------------------------------------
 
@@ -236,7 +260,8 @@ class PTGProvider(MemoryProvider):
             "# RealityOS Personal Timeline\n"
             f"Active ({tier}). {total} captured memo(s). Use ptg_search to recall "
             "relevant prior turns before answering questions about the user's "
-            "history, people, or tasks."
+            "history, people, or tasks.\n\n"
+            + CITATION_INSTRUCTION
         )
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
@@ -248,12 +273,20 @@ class PTGProvider(MemoryProvider):
         except Exception as exc:  # noqa: BLE001
             logger.debug("PTG prefetch failed: %s", exc)
             hits = []
+        # G1 (ADR-V6-043 / F2): render recall as NUMBERED chunks `[N] date: text`
+        # so the agent has a citation handle, and stash the hits + query for
+        # sync_turn to validate the answer against. The previous `- {text[:200]}`
+        # form gave the agent context but no way to cite a source, and nothing
+        # could check an ungrounded claim — the credibility root failure.
+        self._last_recall_hits = hits or []
+        self._last_query = query
         if hits:
-            lines = ["## RealityOS recall (prior captured turns)"]
-            for h in hits:
-                text = (h.get("source_text") or "").strip().replace("\n", " ")
-                lines.append(f"- {text[:200]}")
-            blocks.append("\n".join(lines))
+            chunk_text, _index_map = number_chunks(hits)
+            blocks.append(
+                "## RealityOS recall (prior captured turns)\n"
+                "以下片段按 [N] 编号；引用用户过去时必须用该编号标注来源。\n\n"
+                + chunk_text
+            )
         # §4.3A: fold the entity/relation graph into context so the model sees
         # structured ties ("你与张三互动过 3 次"), not just raw memo text. The
         # Atomizer materialized this graph; without rendering it back, it was
@@ -313,6 +346,12 @@ class PTGProvider(MemoryProvider):
         except Exception as exc:  # noqa: BLE001 — capture must never break the loop
             logger.warning("PTG sync_turn capture failed: %s", exc)
             return
+        # G1 (ADR-V6-043 / F2): observe the answer's grounding — did the agent
+        # cite the chunks it was given, or assert the user's past ungrounded?
+        # Observation-only here (never breaks the loop, C7); the hard
+        # refuse-to-render gate needs an agent-loop answer hook (documented as
+        # the next iteration). Fully fail-open: a store/log glitch is swallowed.
+        self._observe_citation_quality(assistant_content)
         # Phase 1a heart: best-effort background atomization of the captured
         # memo. Disabled in capture-focused tests via ``atomize: False``.
         if self._atomize_enabled and self._atomizer is not None:
@@ -339,6 +378,72 @@ class PTGProvider(MemoryProvider):
             self._atomize_threads.append(t)
         t.start()
 
+    # -- G1 citation observation (ADR-V6-043 / F2) -----------------------
+
+    def _observe_citation_quality(self, assistant_content: str) -> None:
+        """Validate the answer's grounding against the last recall + record it.
+
+        Three outcomes, all observation-only (C7 — never breaks the loop):
+          * ``grounded``   — answer cited ≥1 valid recalled chunk. Bump the
+            grounded counter (a healthy credibility signal).
+          * ``ungrounded`` — answer made a history-like claim (referenced the
+            user's past / a recalled term) but cited nothing valid. This is a
+            credibility incident: an ungrounded assertion about the user's
+            past reached them. WARN-logged + bump the ungrounded counter. The
+            hard refuse-to-render gate needs an agent-loop answer hook
+            (documented as the next iteration); this is the observable foundation.
+          * ``neutral``    — generic reply (no history claim) with recall in
+            scope, or no recall was in scope at all. Not counted either way.
+
+        Counters persist to ``ptg_meta`` (citation_grounded_turns /
+        citation_ungrounded_turns) so credibility drift is queryable across
+        restarts. Fully fail-open: a store/log glitch is swallowed.
+        """
+        if not self._store:
+            return
+        hits = self._last_recall_hits
+        if not hits:
+            return  # nothing recalled this turn — nothing to ground against
+        try:
+            grounding = ground_answer(assistant_content or "", hits)
+            if grounding["has_valid_citation"]:
+                self._bump_meta("citation_grounded_turns")
+                logger.debug(
+                    "PTG citation: grounded (%d source(s), %d dropped)",
+                    len(grounding["sources"]), len(grounding["dropped"]))
+                return
+            # No valid citation — is the answer even about the user's past?
+            # The recalled terms are the query tokens (what the agent was
+            # asked to look up); if the answer echoes them or uses past-tense
+            # markers, it's a history claim that SHOULD have been grounded.
+            terms = _query_terms(self._last_query)
+            if looks_like_history_claim(assistant_content or "", terms):
+                self._bump_meta("citation_ungrounded_turns")
+                logger.warning(
+                    "PTG citation: UNGROUNDED history claim — answer asserted the "
+                    "user's past with %d recalled chunk(s) in scope but cited none "
+                    "valid (dropped/hallucinated=%d, query=%r). This is a G1 "
+                    "credibility incident (ADR-V6-043); hard-enforcement pending.",
+                    len(hits), len(grounding["dropped"]), self._last_query[:80])
+        except Exception as exc:  # noqa: BLE001 — observer surface: never escape
+            logger.debug("PTG citation observation failed: %s", exc)
+
+    def _bump_meta(self, key: str) -> None:
+        """Increment an integer counter in ptg_meta, fail-open (C7)."""
+        store = self._store
+        if store is None:
+            return
+        try:
+            with store._lock:
+                row = store._conn.execute(
+                    "SELECT value FROM ptg_meta WHERE key=?", (key,)).fetchone()
+                cur = int(row[0]) if row is not None and str(row[0]).isdigit() else 0
+                store._conn.execute(
+                    "INSERT OR REPLACE INTO ptg_meta(key, value) VALUES (?, ?)",
+                    (key, str(cur + 1)))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("PTG ptg_meta bump(%s) failed: %s", key, exc)
+
     # -- tools ------------------------------------------------------------
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
@@ -360,7 +465,22 @@ class PTGProvider(MemoryProvider):
             hits = self._store.search_memos_fts(query, user_id=self._user_id, limit=limit)
         except Exception as exc:  # noqa: BLE001
             return tool_error(f"search failed: {exc}")
-        return json.dumps({"results": hits, "count": len(hits)}, ensure_ascii=False)
+        # G1 (ADR-V6-043 / F2): return NUMBERED chunks so the agent can cite
+        # [N], and stash the hits + query for sync_turn validation. The
+        # ``numbered`` field is the cite-aware rendering; ``results`` keeps the
+        # raw rows for any structured use.
+        self._last_recall_hits = hits or []
+        self._last_query = query
+        chunk_text, _index_map = number_chunks(hits)
+        return json.dumps(
+            {
+                "numbered": chunk_text,
+                "results": hits,
+                "count": len(hits),
+                "citation_rule": "引用用户过去时必须用 [N] 编号标注来源片段。",
+            },
+            ensure_ascii=False,
+        )
 
     # -- shutdown ---------------------------------------------------------
 
