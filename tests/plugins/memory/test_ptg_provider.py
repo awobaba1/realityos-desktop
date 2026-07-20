@@ -442,18 +442,32 @@ def test_sync_turn_atomize_then_prefetch_renders_graph_block(provider):
     provider.sync_turn(user_content=memo_text, assistant_content="好的",
                        session_id="sess-1")
 
-    # Wait for the background atomize daemon thread to finish (mock is instant;
-    # poll recent_atoms up to 5s).
+    # Wait for the background atomize daemon thread to finish (mock is instant).
+    #
+    # CRITICAL: poll until the GRAPH is materialized (relations_for_user non-
+    # empty), NOT merely until atoms land (recent_atoms non-empty). The atomizer
+    # writes the atom event first (write_atom) and materializes the relation
+    # edge afterwards (_materialize_graph); polling recent_atoms can observe the
+    # intermediate state where atoms exist but relations do not, then call
+    # prefetch expecting a graph block that isn't there yet → flake. Relations
+    # transitively imply atoms (relations are only written after their atoms),
+    # so waiting on relations closes the write→materialize window and makes this
+    # test deterministic. (ADR-V6-050 B2 follow-up: race proven via code reading
+    # of atomizer._extract_and_write_pass.)
     import time
-    atoms = []
+    atoms, relations = [], []
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        atoms = provider._store.recent_atoms(
-            user_id=provider._user_id, limit=50)
-        if atoms:
+        relations = provider._store.relations_for_user(provider._user_id)
+        if relations:
+            atoms = provider._store.recent_atoms(
+                user_id=provider._user_id, limit=50)
             break
         time.sleep(0.05)
-    assert atoms, "background atomize did not land atoms within 5s"
+    assert relations, (
+        "background atomize did not materialize graph relations within 5s "
+        "(write→materialize window not closed)")
+    assert atoms, "relations landed but atoms missing (consistency check)"
 
     # prefetch must render BOTH halves: memo recall + graph block (§4.3A).
     out = provider.prefetch("张三", session_id="sess-1")
