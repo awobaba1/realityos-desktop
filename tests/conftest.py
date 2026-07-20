@@ -32,6 +32,25 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+# ── .pyc defense (ADR-V6-041 / F1) ──────────────────────────────────────────
+# Prevent pytest imports from writing __pycache__/.pyc into the source tree.
+# Why this matters for anti-fake-green:
+#   1. Stale .pyc can be imported INSTEAD of edited source, masking the fact
+#      that a code change didn't actually take effect — a classic "tests pass
+#      but production runs old code" silent failure (C7 静默失败).
+#   2. Content-fingerprint verification (headSha / CI 三连核验) must compare
+#      against actual source, not bytecode that may lag behind it.
+#   3. strategy-02 T-0 flagged the absence of this guard as a single point of
+#      failure for the entire credibility system — tests are the gatekeeper,
+#      and a gatekeeper that can run stale bytecode cannot be trusted.
+# Scope: set at conftest import (process start), so every subsequent import
+# in the test process skips .pyc emission. The subprocess-per-file runner
+# (scripts/run_tests_parallel.py) re-imports conftest fresh per file, so this
+# is honored uniformly. Already-imported module bytecode is unaffected — the
+# intent is to prevent FUTURE test imports from polluting the tree.
+sys.dont_write_bytecode = True
+
+
 # ── Per-file process isolation ──────────────────────────────────────────────
 # Tests run via ``scripts/run_tests_parallel.py``, which spawns a fresh
 # ``python -m pytest <file>`` subprocess per test file. Cross-file state
