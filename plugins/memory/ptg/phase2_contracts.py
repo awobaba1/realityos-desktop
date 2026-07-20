@@ -53,7 +53,15 @@ __all__ = [
 
 # Bump when the contract shape changes in a Phase-2-visible way. Phase 2 pins
 # against a version so a contract edit is an explicit, reviewed event (C1).
-PHASE2_CONTRACT_VERSION = 1
+#
+# v2 (ADR-V6-050): TheoryDerivation gains ``basis`` + ``degraded``. ADR-V6-040
+# D4's honest-degradation iron rule demands that every PC-dimension derivation
+# carry a machine-readable degradation flag + the data basis — burying it in
+# ``rationale`` prose is exactly the fake-green the rule warns against (a
+# renderer could silently ignore prose and render a None/unsupported dim as
+# "平稳"). Both fields are optional with defaults, so v1 consumers reading v2
+# records are unaffected; the version bump is the C1 signal (ADR-V6-039 rule 4).
+PHASE2_CONTRACT_VERSION = 2
 
 # ── Quark layer (data-syntax primitives; doc §4.3E, §6) ─────────────────────
 
@@ -171,6 +179,18 @@ class TheoryDerivation(BaseModel):
     # FR→fr_snapshot). Matches doc line 288 enum.
     aggregation_type: str = Field(pattern="^(constraint_state|fr_snapshot)$")
     confidence: float = Field(default=0.0, ge=0, le=1)
+    # ADR-V6-050 (contract v2): the data basis for this derivation — which atom
+    # kind / source fed it, OR why it could not be derived ("需 R10 sleep 连续值
+    # (Phase 2.5)，文本无据"). Machine-readable provenance so a consumer never
+    # mistakes an unsupported dim for a measured one.
+    basis: str = Field(default="", max_length=300)
+    # ADR-V6-050 (contract v2): True when this derivation rests on a missing /
+    # severely-degraded data source (no acoustic / multi-person / sleep chain).
+    # The honest-degradation iron rule (ADR-V6-040 D4): a degraded dim MUST be
+    # rendered as "数据不足/降级", NEVER as a real score or "平稳". The engine
+    # stamps this deterministically (not the LLM) — the LLM cannot know it
+    # lacks data, so the engine enforces the contract.
+    degraded: bool = Field(default=False)
 
 
 @runtime_checkable

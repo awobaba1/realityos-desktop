@@ -1,0 +1,4 @@
+name: realityos_theory
+version: "0.1.0"
+description: "RealityOS V6 theory derivation layer (架构 §4.3E line 389, ADR-V6-039 Batch2 / ADR-V6-050 B2). Concrete TheoryEngine (Phase-2 LLM approximation of 7-PC/5-FR skeletons) behind the pinned Protocol. Honest-degradation contract v2: every derivation carries machine-readable degraded flag + basis, stamped deterministically by the engine after the LLM returns (the LLM cannot know it lacks data). 3 PC dims with no text source (Energy/Social/Environment) forced degraded+score=0; Cognition degraded (V6 R8 no continuous score); only Time/Emotion/Execution non-degraded. Single-direction data flow: derive reads atoms/relations, writes only insight_aggregation (PC→constraint_state, FR→fr_snapshot). C5/C6/C7 gated; register no-op (B3 wires scheduling/CLI)."
+author: RealityOS
