@@ -790,6 +790,21 @@ class PTGStore:
         except Exception as exc:  # noqa: BLE001 — observation surface (C7)
             logger.warning("adjust_atom_confidence failed (%s %s): %s",
                            atom_type, atom_id, exc)
+            # ADR-V6-069 D1: best-effort DLQ (same pattern as insert_feedback
+            # D3 — except is outside the ``with self._lock`` block, so the lock
+            # is released and insert_dlq cannot deadlock). This is the founder
+            # calibration signal (ADR-V6-028 §11.4) — the direct brother of
+            # insert_feedback D3; ADR-066's R4 sweep missed it. Must not
+            # silently evaporate (C7).
+            try:
+                self.insert_dlq(
+                    user_id=user_id, source="store.adjust_atom_confidence",
+                    error_type="confidence_adjust_failed",
+                    error_msg=f"{type(exc).__name__}: {exc}",
+                    original_data={"atom_type": atom_type, "atom_id": atom_id,
+                                   "new_confidence": clamped, "reason": reason})
+            except Exception:  # noqa: BLE001 — best-effort (store may be unhealthy)
+                logger.warning("adjust_atom_confidence DLQ write also failed: %s", exc)
             return 0
 
     # ------------------------------------------------------------------
@@ -888,6 +903,21 @@ class PTGStore:
         except Exception as exc:  # noqa: BLE001
             logger.warning("mark_task_outcome failed (%s %s): %s",
                            user_id, ref, exc)
+            # ADR-V6-069 D2: best-effort DLQ (same pattern as insert_tool_event
+            # D4 — except is outside the ``with self.transaction()`` block, so
+            # the transaction has rolled back + exited and insert_dlq cannot
+            # deadlock). Task-outcome marking (done/failed/delayed) is the
+            # direct brother of insert_tool_event D4; ADR-066's R4 sweep missed
+            # it. Never silently evaporate (C7).
+            try:
+                self.insert_dlq(
+                    user_id=user_id, source="store.mark_task_outcome",
+                    error_type="task_outcome_failed",
+                    error_msg=f"{type(exc).__name__}: {exc}",
+                    original_data={"ref": ref, "outcome": outcome,
+                                   "atom_id": atom_id, "actor": actor})
+            except Exception:  # noqa: BLE001 — best-effort (store may be unhealthy)
+                logger.warning("mark_task_outcome DLQ write also failed: %s", exc)
             return {"ok": False, "resolved": False,
                     "message": "操作没成功，稍后再试。"}
         logger.info("mark_task_outcome user=%s atom=%s → %s (%s)",

@@ -100,6 +100,25 @@ def _persist_one(store, *, user_id: str, derivation: TheoryDerivation,
     except Exception as exc:  # noqa: BLE001 — C7: one row's failure isolates
         logger.warning("theory persist failed (%s/%s): %s",
                        derivation.kind, derivation.name, exc)
+        # ADR-V6-069 D3: best-effort DLQ. This is the DB-write backstop for
+        # theory derivations — the inner LLM call (engine.derive) already DLQs
+        # (engine.py _safe_dlq), but the persist write itself (insight_aggregation
+        # upsert) did not. Direct brother of ADR-066 D2 (correction.re_extract_memo
+        # outer backstop). The derived insight must not silently evaporate (C7).
+        try:
+            store.insert_dlq(
+                user_id=user_id, source="theory.persist_one",
+                error_type="insight_persist_failed",
+                error_msg=f"{type(exc).__name__}: {exc}",
+                original_data={
+                    "kind": derivation.kind, "name": derivation.name,
+                    "aggregation_type": getattr(
+                        derivation, "aggregation_type", None),
+                    "period_key": period_key,
+                    "degraded": bool(derivation.degraded)},
+            )
+        except Exception:  # noqa: BLE001 — best-effort (store may be unhealthy)
+            logger.warning("theory persist DLQ write also failed: %s", exc)
         return False
 
 

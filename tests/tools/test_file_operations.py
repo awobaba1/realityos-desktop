@@ -891,15 +891,48 @@ class TestPatchReplacePostWriteVerification:
 
 
 # =========================================================================
-# Git baseline check for write_file warning
+# ADR-V6-069 D4: real coverage for the write-file diagnostic surface.
+#
+# The previous tenant here was ``_DeletedTestGitBaselineCheck`` — a 6-test
+# tombstone (removed May 2026 "per Teknium's instruction to keep CI green")
+# asserting on a ``_check_git_baseline`` method. That method has NEVER
+# existed on ``ShellFileOperations`` in this fork (verified: zero defs
+# repo-wide), so the 6 tests failed with AttributeError on origin/main and
+# were deleted rather than fixed — classic keep-CI-green archaeology debt,
+# same shape as the sanitizer stub ADR-V6-068 fixed. Rather than leave a
+# ghost class documenting non-existent code (ADR-V6-038: don't write what
+# isn't verifiable), this class pins the HONEST current contract with real
+# assertions: the git-workspace-aware write surface is ``WriteResult.warning``
+# + ``lsp_diagnostics`` (file_operations.py:176-190), and
+# ``_check_git_baseline`` is deliberately absent (C4 guard so a half-baked
+# resurrection can't silently ship untested).
 # =========================================================================
 
-class _DeletedTestGitBaselineCheck:
-    """Removed May 2026 — these tests asserted on a ``_check_git_baseline``
-    method that doesn't exist on ``ShellFileOperations`` (regression intro
-    by a separate refactor). All 6 tests in the class fail with
-    AttributeError on origin/main. Deleted wholesale per Teknium's
-    instruction to keep CI green; reinstate them when the underlying
-    helper is restored or replaced.
-    """
-    pass
+class TestWriteFileDiagnosticSurface:
+    """Real coverage for write_file's diagnostic result fields (ADR-V6-069 D4)."""
+
+    def test_warning_field_round_trips_through_to_dict(self):
+        from tools.file_operations import WriteResult
+        r = WriteResult(bytes_written=42, warning="not in a git workspace")
+        d = r.to_dict()
+        assert d["warning"] == "not in a git workspace"
+        assert d["bytes_written"] == 42
+
+    def test_lsp_diagnostics_field_round_trips_through_to_dict(self):
+        from tools.file_operations import WriteResult
+        r = WriteResult(lsp_diagnostics="E501 line too long")
+        assert r.to_dict()["lsp_diagnostics"] == "E501 line too long"
+
+    def test_none_diagnostic_fields_omitted_from_dict(self):
+        from tools.file_operations import WriteResult
+        d = WriteResult(bytes_written=1).to_dict()
+        assert "warning" not in d
+        assert "lsp_diagnostics" not in d
+
+    def test_check_git_baseline_is_deliberately_absent(self):
+        """C4 guard: the method the deleted tombstone asserted on must NOT
+        exist on ``ShellFileOperations``. Pins the honest contract so a
+        half-restored ``_check_git_baseline`` cannot silently ship without
+        tests — the exact regression the Teknium deletion papered over."""
+        from tools.file_operations import ShellFileOperations
+        assert not hasattr(ShellFileOperations, "_check_git_baseline")
