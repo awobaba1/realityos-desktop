@@ -311,13 +311,27 @@ def close_interrupted_tool_sequence(messages: list, final_response: Any = None) 
     return True
 
 
-def _strip_non_ascii(text: str) -> str:
-    """Remove non-ASCII characters, replacing with closest ASCII equivalent or removing.
+def _strip_non_ascii(text: str, *, errors: str = "ignore") -> str:
+    """Reduce ``text`` to pure ASCII for ASCII-only system-encoding recovery.
 
     Used as a last resort when the system encoding is ASCII and can't handle
-    any non-ASCII characters (e.g. LANG=C on Chromebooks).
+    any non-ASCII characters (e.g. LANG=C on Chromebooks, minimal containers).
+
+    ``errors`` selects how non-ASCII chars are handled (mirrors ``str.encode``):
+
+    * ``"ignore"`` (default) — drop non-ASCII chars silently. Used for
+      CREDENTIALS (a pasted API key with a lookalike char: dropping the bad
+      char can recover the intended key; a ``?`` would definitely break it)
+      and for structural fields (tool schema / header values / name).
+    * ``"replace"`` — replace each non-ASCII char with ``?`` so the loss is
+      VISIBLE in-band. Used for MESSAGE CONTENT the agent reasons on (content
+      string, content-list text, tool-call arguments): silent removal of
+      Chinese (this is a Chinese-first product) would let the agent operate
+      on hole-punched text it cannot see — a silent-fake-green. The ``?``
+      marker makes the degradation legible to both agent and user
+      (ADR-V6-060 / C2 "nothing lost" spirit / honest-degradation iron rule).
     """
-    return text.encode('ascii', errors='ignore').decode('ascii')
+    return text.encode('ascii', errors=errors).decode('ascii')
 
 
 def _sanitize_messages_non_ascii(messages: list) -> bool:
@@ -334,7 +348,7 @@ def _sanitize_messages_non_ascii(messages: list) -> bool:
         # Sanitize content (string)
         content = msg.get("content")
         if isinstance(content, str):
-            sanitized = _strip_non_ascii(content)
+            sanitized = _strip_non_ascii(content, errors="replace")
             if sanitized != content:
                 msg["content"] = sanitized
                 found = True
@@ -343,7 +357,7 @@ def _sanitize_messages_non_ascii(messages: list) -> bool:
                 if isinstance(part, dict):
                     text = part.get("text")
                     if isinstance(text, str):
-                        sanitized = _strip_non_ascii(text)
+                        sanitized = _strip_non_ascii(text, errors="replace")
                         if sanitized != text:
                             part["text"] = sanitized
                             found = True
@@ -363,7 +377,7 @@ def _sanitize_messages_non_ascii(messages: list) -> bool:
                     if isinstance(fn, dict):
                         fn_args = fn.get("arguments")
                         if isinstance(fn_args, str):
-                            sanitized = _strip_non_ascii(fn_args)
+                            sanitized = _strip_non_ascii(fn_args, errors="replace")
                             if sanitized != fn_args:
                                 fn["arguments"] = sanitized
                                 found = True

@@ -2528,7 +2528,9 @@ def run_conversation(
                         )
                         if _any_sanitized:
                             agent._vprint(
-                                f"{agent.log_prefix}⚠️  System encoding is ASCII — stripped non-ASCII characters from request payload. Retrying...",
+                                f"{agent.log_prefix}⚠️  System encoding is ASCII — sanitized non-ASCII from request payload "
+                                f"(message content replaced with visible '?' markers, NOT silently dropped — ADR-V6-060). "
+                                f"系统为 ASCII 编码，已用 '?' 标记替换非 ASCII 内容（中文等），非静默丢失。Retrying...",
                                 force=True,
                             )
                         else:

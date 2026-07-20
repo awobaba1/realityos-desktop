@@ -36,6 +36,57 @@ class TestStripNonAscii:
     def test_only_non_ascii(self):
         assert _strip_non_ascii("⚕🤖") == ""
 
+    def test_default_ignore_is_credential_safe(self):
+        """ADR-V6-060: default errors='ignore' is credential-safe and UNCHANGED.
+
+        A pasted API key with one extraneous lookalike char (ʋ U+028B) has the
+        bad char DROPPED, which can recover the intended key. Switching the
+        default to 'replace' would inject '?' and definitely break auth — so
+        the default stays 'ignore' for credentials + structural fields.
+        """
+        assert _strip_non_ascii("sk-abcʋdef") == "sk-abcdef"
+
+    def test_replace_makes_loss_visible(self):
+        """ADR-V6-060: errors='replace' turns non-ASCII into visible ? so the
+        agent/user sees the degradation in-band (not silently hole-punched)."""
+        assert _strip_non_ascii("你好", errors="replace") == "??"
+        assert _strip_non_ascii("hello ⚕", errors="replace") == "hello ?"
+
+
+class TestAdrV606SurgicalReplaceScope:
+    """ADR-V6-060: only agent-reasoning surfaces use errors='replace' (visible ?).
+
+    Content + tool-call arguments are data the agent reasons on → silent
+    Chinese removal is a fake-green; they use 'replace'. Credentials, the
+    ``name`` field, and structural fields keep 'ignore' (silent drop) — a '?'
+    would break credential recovery and adds no value on non-reasoning fields.
+    """
+
+    def test_content_uses_replace_visible(self):
+        messages = [{"role": "user", "content": "你好"}]
+        assert _sanitize_messages_non_ascii(messages) is True
+        assert messages[0]["content"] == "??"
+
+    def test_content_list_text_uses_replace_visible(self):
+        messages = [{"role": "user", "content": [{"type": "text", "text": "你好"}]}]
+        assert _sanitize_messages_non_ascii(messages) is True
+        assert messages[0]["content"][0]["text"] == "??"
+
+    def test_tool_call_args_use_replace_visible(self):
+        messages = [{
+            "role": "assistant", "content": None,
+            "tool_calls": [{"id": "c1", "type": "function",
+                            "function": {"name": "search", "arguments": '{"q": "你好"}'}}]
+        }]
+        assert _sanitize_messages_non_ascii(messages) is True
+        assert messages[0]["tool_calls"][0]["function"]["arguments"] == '{"q": "??"}'
+
+    def test_name_field_stays_ignore_silent(self):
+        messages = [{"role": "tool", "name": "你好tool", "content": "ok"}]
+        assert _sanitize_messages_non_ascii(messages) is True
+        # name is structural, not a reasoning surface → silent drop (ignore)
+        assert messages[0]["name"] == "tool"
+
 
 class TestSanitizeMessagesNonAscii:
     """Tests for _sanitize_messages_non_ascii."""
@@ -48,7 +99,9 @@ class TestSanitizeMessagesNonAscii:
     def test_sanitizes_content_string(self):
         messages = [{"role": "user", "content": "hello ⚕ world"}]
         assert _sanitize_messages_non_ascii(messages) is True
-        assert messages[0]["content"] == "hello  world"
+        # ADR-V6-060: content uses errors="replace" → visible ? marker
+        # (not silent removal) so the agent sees the degradation in-band.
+        assert messages[0]["content"] == "hello ? world"
 
     def test_sanitizes_content_list(self):
         messages = [{
@@ -56,7 +109,7 @@ class TestSanitizeMessagesNonAscii:
             "content": [{"type": "text", "text": "hello 🤖"}]
         }]
         assert _sanitize_messages_non_ascii(messages) is True
-        assert messages[0]["content"][0]["text"] == "hello "
+        assert messages[0]["content"][0]["text"] == "hello ?"
 
     def test_sanitizes_name_field(self):
         messages = [{"role": "tool", "name": "⚕tool", "content": "ok"}]
@@ -77,7 +130,9 @@ class TestSanitizeMessagesNonAscii:
             }]
         }]
         assert _sanitize_messages_non_ascii(messages) is True
-        assert messages[0]["tool_calls"][0]["function"]["arguments"] == '{"path": "test.txt"}'
+        # ADR-V6-060: tool-call arguments (agent-reasoning surface) use
+        # errors="replace" → ? marker, not silent removal.
+        assert messages[0]["tool_calls"][0]["function"]["arguments"] == '{"path": "?test.txt"}'
 
     def test_handles_non_dict_messages(self):
         messages = ["not a dict", {"role": "user", "content": "hello"}]
@@ -93,8 +148,9 @@ class TestSanitizeMessagesNonAscii:
             {"role": "assistant", "content": "Hi there!"},
         ]
         assert _sanitize_messages_non_ascii(messages) is True
-        assert messages[0]["content"] == " System prompt"
-        assert messages[1]["content"] == "Hello "
+        # ADR-V6-060: content uses errors="replace" → visible ? markers.
+        assert messages[0]["content"] == "? System prompt"
+        assert messages[1]["content"] == "Hello ??"
         assert messages[2]["content"] == "Hi there!"
 
 
@@ -129,12 +185,16 @@ class TestSurrogateVsAsciiSanitization:
         assert "\ud800" not in messages[0]["tool_calls"][0]["function"]["name"]
         assert "\ud800" not in messages[0]["tool_calls"][0]["function"]["arguments"]
 
-    def test_ascii_codec_strips_all_non_ascii(self):
-        """ASCII codec case: all non-ASCII is stripped, not replaced."""
+    def test_ascii_codec_replaces_all_non_ascii_content(self):
+        """ASCII codec case: content non-ASCII is REPLACED with ? (ADR-V6-060).
+
+        Previously stripped silently (errors='ignore'); now visible ? markers
+        so the agent never reasons on hole-punched text it cannot see.
+        """
         messages = [{"role": "user", "content": "test ⚕🤖你好 end"}]
         assert _sanitize_messages_non_ascii(messages) is True
-        # All non-ASCII chars removed; spaces around them collapse
-        assert messages[0]["content"] == "test  end"
+        # 4 non-ASCII chars (⚕🤖你好) → 4 visible ? markers
+        assert messages[0]["content"] == "test ???? end"
 
     def test_no_surrogates_returns_false(self):
         """When no surrogates present, _sanitize_messages_surrogates returns False."""
