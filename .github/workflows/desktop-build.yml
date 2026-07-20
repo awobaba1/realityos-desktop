@@ -93,7 +93,7 @@ jobs:
         run: npm run test:desktop:dmg --workspace apps/desktop
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: apps/desktop/release/${{ matrix.artifact_glob }}
