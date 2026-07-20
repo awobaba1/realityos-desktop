@@ -26,11 +26,7 @@ export function formatCrashLine(kind: CrashKind, err: unknown, iso: string): str
   const message = err instanceof Error ? (err.message ?? '') : String(err)
   const stack = err instanceof Error ? (err.stack ?? '') : ''
 
-  return (
-    `[CRASH ${iso}] kind=${kind} ` +
-    `msg=${message.slice(0, MAX_MSG)} ` +
-    `stack=${stack.slice(0, MAX_STACK)}\n`
-  )
+  return `[CRASH ${iso}] kind=${kind} ` + `msg=${message.slice(0, MAX_MSG)} ` + `stack=${stack.slice(0, MAX_STACK)}\n`
 }
 
 /** Append a structured crash record to logPath, synchronously. Never throws. */

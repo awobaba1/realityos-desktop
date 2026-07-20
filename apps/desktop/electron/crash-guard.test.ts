@@ -4,11 +4,7 @@ import path from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  appendCrashRecordSync,
-  formatCrashLine,
-  installCrashGuard,
-} from './crash-guard'
+import { appendCrashRecordSync, formatCrashLine, installCrashGuard } from './crash-guard'
 
 describe('formatCrashLine', () => {
   it('formats an Error with message + stack', () => {

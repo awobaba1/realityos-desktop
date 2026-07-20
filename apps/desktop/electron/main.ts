@@ -5603,7 +5603,9 @@ async function discoverCloudAgents(org?: string) {
     // A 401 means the portal session lapsed between the liveness check and the
     // call — surface it as a re-login, not a generic failure.
     if (error && error.statusCode === 401) {
-      const err = new Error('Your RealityOS Cloud session has expired. Open Settings → Gateway and sign in again.') as any
+      const err = new Error(
+        'Your RealityOS Cloud session has expired. Open Settings → Gateway and sign in again.'
+      ) as any
       err.needsCloudLogin = true
       err.cause = error
       throw err
