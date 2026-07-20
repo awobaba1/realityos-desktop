@@ -1,0 +1,4 @@
+name: realityos_quark
+version: "0.1.0"
+description: "RealityOS V6 quark extraction layer (架构 §4.3E, ADR-V6-039 Batch1 / ADR-V6-049 B1). Concrete QuarkExtractor (Phase-2 text subset: Identity/Meaning/Feeling) behind the pinned Protocol + fixed Quark→atom aggregation (QUARK_TO_ATOM_MAP PRIMARY mapping). LLM output C5-gated via QuarkRecord pydantic, C6-logged, C7 DLQ+degrade, prompt versioned. Only the 3 text kinds produced; Time/Behavior/Context/Network pinned but deferred (cut acoustic/multi-person/SED pipelines). Explicit invocation (capture flow / CLI); register is a no-op."
+author: RealityOS
