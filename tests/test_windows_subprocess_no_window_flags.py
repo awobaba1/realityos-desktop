@@ -108,7 +108,13 @@ def test_coding_context_git_hides_git_windows(monkeypatch):
     monkeypatch.setattr(coding_context.subprocess, "run", fake_run)
 
     assert coding_context._git(Path("C:/repo"), "status", "--short") == "clean"
-    assert captured[0][1]["creationflags"] == _CREATE_NO_WINDOW
+    # Filter to the call under test (argv ``status --short``). The update-check
+    # daemon's stray ``git ... origin`` spawn can otherwise land in ``captured``
+    # ahead of this call and trip a bare ``KeyError: 'creationflags'`` (same
+    # race hardened in 0ea318a7d / 1b2065c11 via ``_spawns``).
+    git_calls = _spawns(captured, "status", "--short")
+    assert len(git_calls) == 1, captured
+    assert git_calls[0][1].get("creationflags") == _CREATE_NO_WINDOW
 
 
 def test_context_reference_git_and_rg_hide_windows(monkeypatch):
@@ -168,8 +174,10 @@ def test_copilot_gh_cli_probe_hides_gh_windows(monkeypatch):
     monkeypatch.setattr(copilot_auth.subprocess, "run", fake_run)
 
     assert copilot_auth._try_gh_cli_token() == "gho_from_cli"
-    assert captured[0][0] == ["gh", "auth", "token"]
-    assert captured[0][1]["creationflags"] == _CREATE_NO_WINDOW
+    gh_calls = _spawns(captured, "gh", "auth", "token")
+    assert len(gh_calls) == 1, captured
+    assert gh_calls[0][0] == ["gh", "auth", "token"]
+    assert gh_calls[0][1].get("creationflags") == _CREATE_NO_WINDOW
 
 
 def test_gateway_pid_scan_hides_wmic_and_powershell_windows(monkeypatch):
@@ -227,7 +235,9 @@ def test_stale_dashboard_windows_scan_hides_wmic(monkeypatch):
     monkeypatch.setattr(main.subprocess, "run", fake_run)
 
     assert main._find_stale_dashboard_pids() == [123]
-    assert captured[0][1]["creationflags"] == _CREATE_NO_WINDOW
+    wmic_calls = _spawns(captured, "wmic")
+    assert len(wmic_calls) == 1, captured
+    assert wmic_calls[0][1].get("creationflags") == _CREATE_NO_WINDOW
 
 
 def test_gateway_force_kill_hides_taskkill_window(monkeypatch):
@@ -280,7 +290,9 @@ def test_shell_hooks_hide_hook_command_windows(monkeypatch):
     )
 
     assert result["returncode"] == 0
-    assert captured[0][1]["creationflags"] == _CREATE_NO_WINDOW
+    hook_calls = _spawns(captured, "hook-bin", "--flag")
+    assert len(hook_calls) == 1, captured
+    assert hook_calls[0][1].get("creationflags") == _CREATE_NO_WINDOW
 
 
 def test_inline_skill_shell_hides_bash_window(monkeypatch):
@@ -297,8 +309,10 @@ def test_inline_skill_shell_hides_bash_window(monkeypatch):
     monkeypatch.setattr(skill_preprocessing.subprocess, "run", fake_run)
 
     assert skill_preprocessing.run_inline_shell("echo ok", cwd=None, timeout=5) == "ok"
-    assert captured[0][0] == ["bash", "-c", "echo ok"]
-    assert captured[0][1]["creationflags"] == _CREATE_NO_WINDOW
+    bash_calls = _spawns(captured, "bash", "-c", "echo ok")
+    assert len(bash_calls) == 1, captured
+    assert bash_calls[0][0] == ["bash", "-c", "echo ok"]
+    assert bash_calls[0][1].get("creationflags") == _CREATE_NO_WINDOW
 
 
 def test_tts_opus_conversion_hides_ffmpeg_window(monkeypatch, tmp_path):
@@ -316,8 +330,10 @@ def test_tts_opus_conversion_hides_ffmpeg_window(monkeypatch, tmp_path):
 
     tts_tool._convert_to_opus(str(tmp_path / "v.mp3"))
 
-    assert captured[0][0][0] == "ffmpeg"
-    assert captured[0][1]["creationflags"] == _CREATE_NO_WINDOW
+    ffmpeg_calls = _spawns(captured, "ffmpeg")
+    assert len(ffmpeg_calls) == 1, captured
+    assert ffmpeg_calls[0][0][0] == "ffmpeg"
+    assert ffmpeg_calls[0][1].get("creationflags") == _CREATE_NO_WINDOW
 
 
 def test_local_stt_audio_prep_hides_ffmpeg_window(monkeypatch, tmp_path):
@@ -335,8 +351,10 @@ def test_local_stt_audio_prep_hides_ffmpeg_window(monkeypatch, tmp_path):
 
     transcription_tools._prepare_local_audio(str(tmp_path / "in.m4a"), str(tmp_path))
 
-    assert captured[0][0][0] == "ffmpeg"
-    assert captured[0][1]["creationflags"] == _CREATE_NO_WINDOW
+    ffmpeg_calls = _spawns(captured, "ffmpeg")
+    assert len(ffmpeg_calls) == 1, captured
+    assert ffmpeg_calls[0][0][0] == "ffmpeg"
+    assert ffmpeg_calls[0][1].get("creationflags") == _CREATE_NO_WINDOW
 
 def test_checkpoint_manager_git_hides_windows(monkeypatch):
     from tools import checkpoint_manager
@@ -377,8 +395,10 @@ def test_skills_hub_gh_token_hides_windows(monkeypatch):
 
     auth = skills_hub.GitHubAuth.__new__(skills_hub.GitHubAuth)
     assert auth._try_gh_cli() == "gho_from_cli"
-    assert captured[0][0] == ["gh", "auth", "token"]
-    assert captured[0][1]["creationflags"] == _CREATE_NO_WINDOW
+    gh_calls = _spawns(captured, "gh", "auth", "token")
+    assert len(gh_calls) == 1, captured
+    assert gh_calls[0][0] == ["gh", "auth", "token"]
+    assert gh_calls[0][1].get("creationflags") == _CREATE_NO_WINDOW
 
 
 def test_tui_slash_worker_hides_python_window(monkeypatch):
@@ -404,5 +424,7 @@ def test_tui_slash_worker_hides_python_window(monkeypatch):
 
     server._SlashWorker("session-key", "model-x")
 
-    assert captured[0][0][:3] == [server.sys.executable, "-m", "tui_gateway.slash_worker"]
-    assert captured[0][1]["creationflags"] == _CREATE_NO_WINDOW
+    worker_calls = _spawns(captured, "tui_gateway.slash_worker")
+    assert len(worker_calls) == 1, captured
+    assert worker_calls[0][0][:3] == [server.sys.executable, "-m", "tui_gateway.slash_worker"]
+    assert worker_calls[0][1].get("creationflags") == _CREATE_NO_WINDOW
