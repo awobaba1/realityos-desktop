@@ -568,6 +568,153 @@ class PTGStore:
                            atom_type, atom_id, exc)
             return 0
 
+    # ------------------------------------------------------------------
+    # R12 explicit outcome pathway (ADR-V6-046 / A3)
+    # ------------------------------------------------------------------
+
+    # outcome → (task_status, is_overdue). Mirrors atomizer.py's R12 write map
+    # (atomizer.py:557-559) so the explicit path and the LLM path land the same
+    # column shape. 'failed' has no enum value → 'dismissed' (closed-but-not-done);
+    # the precise outcome survives in completion_note.
+    _OUTCOME_STATUS = {
+        "completed": ("completed", 0),
+        "failed": ("dismissed", 0),
+        "delayed": ("pending", 1),
+    }
+
+    def list_open_tasks(self, user_id: str, *, limit: int = 50) -> List[Dict[str, Any]]:
+        """Open R2/R12 tasks for the tenant (pending / in_progress), newest first.
+
+        The index surface for ``hermes task done #N`` — N is the 1-based position
+        in THIS ordering (timestamp DESC, id), matching danao14's cross-function
+        ``_INDEX_SQL`` contract (transitions.py:20-26). Pure SQL, never raises (C7).
+        """
+        try:
+            with self._lock:
+                rows = self._conn.execute(
+                    "SELECT id, task_description, intent_class, task_status, "
+                    "is_overdue, urgency, deadline, timestamp "
+                    "FROM meaning_events "
+                    "WHERE user_id=? AND atom_kind IN ('R2','R12') "
+                    "AND task_status IN ('pending','in_progress') "
+                    "AND deleted_at IS NULL "
+                    "ORDER BY timestamp DESC, id LIMIT ?",
+                    (user_id, limit),
+                ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception:  # noqa: BLE001
+            logger.warning("list_open_tasks read failed:", exc_info=True)
+            return []
+
+    def mark_task_outcome(
+        self, *, user_id: str, ref: str, outcome: str,
+        actor: str = "user", resolution_note: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """§6.x user-sovereign explicit task-outcome pathway (ADR-V6-046 / A3).
+
+        The R12 explicit通路 the roadmap (ADR-V6-040 A3) calls out — until now the
+        only way an R12 atom existed was the LLM choosing to extract one from chat.
+        This lets the user (or, via ``actor='agent'``, the agent on the user's
+        behalf) explicitly mark a task completed / failed / delayed.
+
+        ``ref`` resolves the target row three ways (first hit wins):
+          * ``#N`` / ``N`` (digit) → 1-based index into ``list_open_tasks``;
+          * an exact ``meaning_events.id`` (uuid) → that row;
+          * a task_description substring → the unique open task containing it
+            (0 or >1 matches → ``resolved: false`` with a diagnostic message).
+
+        The row is **promoted in place** to ``atom_kind='R12'`` (if it was an R2)
+        rather than duplicated — danao14 inserts a new R12 row because its
+        meaning_events has no R2 row to update; V6's atomizer usually already
+        wrote the R2, so an UPDATE is correct (C2: version bump, never a second
+        row). ``completion_note`` records actor/outcome/resolution_note/changed_at
+        as the audit; ``version`` + ``updated_at`` make the mutation observable.
+        Never raises (C7) — returns ``{ok, resolved, message, ...}``.
+        """
+        outcome = (outcome or "").strip().lower()
+        if outcome not in self._OUTCOME_STATUS:
+            return {"ok": False, "resolved": False,
+                    "message": f"未知结果 {outcome!r}（用 completed/failed/delayed）"}
+        task_status, is_overdue = self._OUTCOME_STATUS[outcome]
+
+        target = self._resolve_task_ref(user_id, ref)
+        if target is None:
+            return {"ok": False, "resolved": False,
+                    "message": f"没找到待办 {ref!r}（用 `hermes task list` 看编号）"}
+        atom_id, task_desc = target
+
+        now = _now_iso()
+        note = {"outcome": outcome, "actor": actor,
+                "resolution_note": resolution_note or "", "changed_at": now}
+        completed_at = now if outcome == "completed" else None
+        try:
+            with self.transaction():
+                cur = self._conn.execute(
+                    "UPDATE meaning_events "
+                    "SET task_status=?, is_overdue=?, atom_kind='R12', "
+                    "completed_at=COALESCE(?, completed_at), "
+                    "completion_note=?, version=version+1, updated_at=? "
+                    "WHERE id=? AND user_id=? AND deleted_at IS NULL",
+                    (task_status, is_overdue, completed_at,
+                     json.dumps(note, ensure_ascii=False), now, atom_id, user_id),
+                )
+                if (cur.rowcount or 0) == 0:
+                    return {"ok": False, "resolved": False,
+                            "message": f"待办 {ref!r} 已不存在或已删除"}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mark_task_outcome failed (%s %s): %s",
+                           user_id, ref, exc)
+            return {"ok": False, "resolved": False,
+                    "message": "操作没成功，稍后再试。"}
+        logger.info("mark_task_outcome user=%s atom=%s → %s (%s)",
+                    user_id, atom_id, outcome, actor)
+        return {"ok": True, "resolved": True, "atom_id": atom_id,
+                "task_ref": task_desc or ref, "outcome": outcome,
+                "task_status": task_status, "message": self._outcome_past(outcome, task_desc)}
+
+    def _resolve_task_ref(
+        self, user_id: str, ref: str,
+    ) -> Optional[tuple]:
+        """Return (atom_id, task_description) for ``ref``, or None.
+
+        Resolution order: 1-based index (#N) into list_open_tasks → exact id →
+        unique task_description substring. Never raises (C7)."""
+        ref = (ref or "").strip().lstrip("#").strip()
+        if not ref:
+            return None
+        open_rows = self.list_open_tasks(user_id)
+        # 1) 1-based index
+        if ref.isdigit():
+            idx = int(ref) - 1
+            if 0 <= idx < len(open_rows):
+                r = open_rows[idx]
+                return r["id"], r.get("task_description") or ""
+            return None
+        # 2) exact id (uuid) — open OR already-closed (allow re-marking)
+        try:
+            with self._lock:
+                row = self._conn.execute(
+                    "SELECT id, task_description FROM meaning_events "
+                    "WHERE id=? AND user_id=? AND deleted_at IS NULL",
+                    (ref, user_id),
+                ).fetchone()
+            if row is not None:
+                return row["id"], row["task_description"] or ""
+        except Exception:  # noqa: BLE001
+            pass
+        # 3) unique substring over OPEN tasks (don't auto-resolve closed rows)
+        hits = [r for r in open_rows
+                if ref.lower() in (r.get("task_description") or "").lower()]
+        if len(hits) == 1:
+            return hits[0]["id"], hits[0].get("task_description") or ""
+        return None
+
+    @staticmethod
+    def _outcome_past(outcome: str, task_desc: str) -> str:
+        verb = {"completed": "已完成", "failed": "已记为未达成",
+                "delayed": "已延期"}[outcome]
+        return f"已记下「{task_desc}」{verb}。"
+
     def upsert_insight(
         self, *,
         user_id: str,

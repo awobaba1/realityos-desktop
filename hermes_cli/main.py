@@ -320,6 +320,7 @@ from hermes_cli.subcommands.plugins import build_plugins_parser
 from hermes_cli.subcommands.mcp import build_mcp_parser
 from hermes_cli.subcommands.claw import build_claw_parser
 from hermes_cli.subcommands.calibrate import build_calibrate_parser
+from hermes_cli.subcommands.task import build_task_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -12674,7 +12675,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "project", "proxy",
         "prompt-size",
         "send", "sessions", "setup",
-        "skills", "slack", "status", "tools", "uninstall", "update",
+        "skills", "slack", "status", "task", "tools", "uninstall", "update",
         "version", "webhook", "whatsapp", "whatsapp-cloud", "chat", "secrets", "security",
         # Help-ish invocations — plugin commands not being listed in
         # top-level --help is an acceptable trade-off for skipping an
@@ -13135,6 +13136,17 @@ def cmd_calibrate(args):
     channel: 准/不准/惊喜 → feedback + confidence demotion + correction_rate).
     """
     from hermes_cli.calibrate_cmd import cmd_calibrate as _run
+
+    return _run(args)
+
+
+def cmd_task(args):
+    """``hermes task`` — R12 explicit task-outcome pathway (ADR-V6-046 / A3).
+
+    Thin delegate to ``hermes_cli.task_cmd``; the pure resolution + mutation
+    logic lives in ``PTGStore.mark_task_outcome`` / ``list_open_tasks``.
+    """
+    from hermes_cli.task_cmd import cmd_task as _run
 
     return _run(args)
 
@@ -14943,6 +14955,12 @@ def main():
     # Founder daily atom calibration — the §11.5 closed-loop quality channel.
     # =========================================================================
     build_calibrate_parser(subparsers, cmd_calibrate=cmd_calibrate)
+
+    # =========================================================================
+    # task command  (parser built in hermes_cli/subcommands/task.py)
+    # R12 explicit task-outcome pathway — ADR-V6-046 / A3.
+    # =========================================================================
+    build_task_parser(subparsers, cmd_task=cmd_task)
 
     # =========================================================================
     # claw command  (parser built in hermes_cli/subcommands/claw.py)
