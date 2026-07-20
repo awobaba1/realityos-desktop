@@ -40,10 +40,14 @@ def extract_and_aggregate(
 ) -> Dict[str, Any]:
     """Closed loop: extract Quarks → aggregate into PRIMARY atoms.
 
-    Returns ``{ok, extracted, aggregated, counts, llm_call_id}``. Never raises
-    (C7) — extraction failure ⇒ empty result + DLQ, aggregation of whatever
-    validated records did come back proceeds (a partial batch is honest, not
-    all-or-nothing). ``ok`` reflects whether extraction produced records.
+    Returns ``{ok, extracted, aggregated, counts, llm_call_id}``. The
+    ``llm_call_id`` (ADR-V6-071) is the extractor's LLM-call id, threaded into
+    every atom event aggregation writes (C6 traceability — every event MUST
+    carry llm_call_id) AND returned for the caller. ``None`` when no LLM call
+    was made (empty input) — honest, not stale. Never raises (C7) — extraction
+    failure ⇒ empty result + DLQ, aggregation of whatever validated records did
+    come back proceeds (a partial batch is honest, not all-or-nothing). ``ok``
+    reflects whether extraction produced records.
     """
     ext = extractor or QuarkExtractorImpl(store, caller=caller)
     ext.set_user_id(user_id)
@@ -53,13 +57,20 @@ def extract_and_aggregate(
         quarks = ext.extract(rows, capture_text)
     except Exception as exc:  # noqa: BLE001 — defensive; extract itself is C7
         logger.warning("quark extract raised (user=%s): %s", user_id, exc)
+    # ADR-V6-071: thread the extractor's llm_call_id into aggregation so every
+    # written atom event carries it (C6 traceability). Previously the id was
+    # discarded inside extract() → NULL llm_call_id on every quark-derived atom,
+    # and this return key was a documentation lie (promised but never populated).
+    llm_call_id = getattr(ext, "_last_llm_call_id", None)
     counts = aggregate_quarks_to_atoms(
-        store, quarks, user_id=user_id, source_text=source_text or capture_text)
+        store, quarks, user_id=user_id, source_text=source_text or capture_text,
+        llm_call_id=llm_call_id)
     return {
         "ok": len(quarks) > 0,
         "extracted": len(quarks),
         "aggregated": counts["written"],
         "counts": counts,
+        "llm_call_id": llm_call_id,
     }
 
 

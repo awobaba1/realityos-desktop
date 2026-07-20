@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from plugins.memory.ptg.phase2_contracts import QuarkRecord
 
@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 def aggregate_quarks_to_atoms(
     store, quarks: List[QuarkRecord], *, user_id: str,
     source_text: str = "",
+    llm_call_id: Optional[str] = None,
 ) -> Dict[str, int]:
     """Write ``quarks`` into the R-atom event tables (PRIMARY mapping).
 
@@ -49,11 +50,16 @@ def aggregate_quarks_to_atoms(
     in the Phase-2 subset (defensive — the extractor already filters, but a
     later-phase kind reaching here is ignored, not fabricated). Never raises
     (C7) — each insert is fail-isolated so one bad record can't abort the batch.
+
+    ``llm_call_id`` (ADR-V6-071) threads the extractor's LLM-call id into every
+    written atom event (C6 traceability — every event MUST carry llm_call_id).
+    Previously dropped → all quark-derived atoms landed with NULL llm_call_id.
     """
     counts = {"Identity": 0, "Meaning": 0, "Feeling": 0, "written": 0, "dropped": 0}
     for q in quarks:
         try:
-            n = _aggregate_one(store, q, user_id=user_id, source_text=source_text)
+            n = _aggregate_one(store, q, user_id=user_id, source_text=source_text,
+                               llm_call_id=llm_call_id)
             if n:
                 counts[q.kind] = counts.get(q.kind, 0) + 1
                 counts["written"] += 1
@@ -68,6 +74,7 @@ def aggregate_quarks_to_atoms(
 
 def _aggregate_one(
     store, q: QuarkRecord, *, user_id: str, source_text: str,
+    llm_call_id: Optional[str] = None,
 ) -> bool:
     """Materialize one Quark into its PRIMARY atom. Returns True if written."""
     conf = float(q.confidence)
@@ -77,7 +84,8 @@ def _aggregate_one(
     if q.kind == "Identity":
         store.insert_identity_event(
             user_id=user_id, source_text=src, person_name=q.value,
-            confidence_base=conf, relation_confidence=conf, memo_id=memo_id)
+            confidence_base=conf, relation_confidence=conf, memo_id=memo_id,
+            llm_call_id=llm_call_id)
         return True
 
     if q.kind == "Meaning":
@@ -86,7 +94,8 @@ def _aggregate_one(
         store.insert_meaning_event(
             user_id=user_id, source_text=src, intent_class="Other",
             task_description=q.value, atom_kind="R7",
-            confidence_base=conf, relation_confidence=conf, memo_id=memo_id)
+            confidence_base=conf, relation_confidence=conf, memo_id=memo_id,
+            llm_call_id=llm_call_id)
         return True
 
     if q.kind == "Feeling":
@@ -99,7 +108,7 @@ def _aggregate_one(
             trigger_source=json.dumps(
                 {"trigger": q.value, "entity": "",
                  "quark": "R9_Emotion"}, ensure_ascii=False),
-            memo_id=memo_id)
+            memo_id=memo_id, llm_call_id=llm_call_id)
         return True
 
     # Later-phase kind (Time/Behavior/Context/Network) — pinned but not

@@ -69,6 +69,13 @@ class QuarkExtractorImpl:
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._system_prompt: Optional[str] = None
+        # ADR-V6-071: the llm_call_id of the most recent _llm() call, exposed
+        # so aggregation can thread it into the atom event rows (C6
+        # traceability — every event MUST carry llm_call_id). None when no
+        # call was made (empty-input early return) or the extractor was never
+        # run. Previously extract() discarded this id (``_llm_id``), so every
+        # quark-derived atom landed with NULL llm_call_id — a C6 断链.
+        self._last_llm_call_id: Optional[str] = None
 
     # -- Protocol implementation -----------------------------------------
 
@@ -78,8 +85,13 @@ class QuarkExtractorImpl:
         """Extract Quarks from one capture. Never raises (C7)."""
         text = (capture_text or "").strip()
         if not text and not quark_evidence_rows:
+            self._last_llm_call_id = None  # no call made — honest None, not stale
             return []  # nothing to extract — not an error
-        records, _llm_id, _ok = self._llm(quark_evidence_rows or [], text)
+        records, llm_id, _ok = self._llm(quark_evidence_rows or [], text)
+        # ADR-V6-071: expose the llm_call_id so aggregation threads it into the
+        # atom event rows (C6). Previously discarded as ``_llm_id`` → NULL
+        # llm_call_id on every quark-derived atom (C6 断链).
+        self._last_llm_call_id = llm_id
         return records
 
     # -- LLM + C5/C6/C7 rails --------------------------------------------
