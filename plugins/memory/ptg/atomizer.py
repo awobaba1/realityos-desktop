@@ -35,7 +35,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 
 from .confidence import ConfidenceEngine, ValidationResult
 from .store import PTGStore
@@ -196,6 +196,13 @@ class Atomizer:
         self._minor_mode = False
         self._self_name = self_name
         self._self_entity_id: Optional[str] = None
+        # ADR-V6-044 (F3): R9→entity resolution cache. The user's known entity
+        # names, loaded once per atomize() and substring-matched against each
+        # R9 atom's trigger to populate trigger_source.entity (so K-correlation
+        # can group emotions by entity). User-scoped + semaphore-bounded (max 2
+        # concurrent atomize threads) ⇒ a cross-memo race only ever yields the
+        # SAME user's entity list, which is harmless for best-effort matching.
+        self._trigger_entity_cache: Optional[List[str]] = None
 
     # -- prompt -----------------------------------------------------------
 
@@ -221,6 +228,61 @@ class Atomizer:
         if not entities:
             return None
         return _format_entity_vocab(entities)
+
+    def _trigger_entity_names(self) -> List[str]:
+        """ADR-V6-044 (F3): the user's known entity names for R9→entity matching.
+
+        Loaded once per atomize() (cached on the instance) from the same
+        ``list_top_entities`` the prompt-vocab uses. Fail-open (C7): a load
+        error yields an empty list → R9 trigger_source.entity stays "" → that
+        emotion is excluded from K-grouping (correct: we can't prove which
+        entity it ties to). The self-node is already excluded by
+        ``list_top_entities`` (properties.is_self), so self→self correlation
+        can't arise.
+        """
+        if self._trigger_entity_cache is not None:
+            return self._trigger_entity_cache
+        try:
+            ents = self._store.list_top_entities(self._user_id, limit=100)
+        except Exception:  # noqa: BLE001 — enrichment must never break extraction
+            logger.debug("trigger-entity load failed; R9 entity resolution skipped",
+                         exc_info=True)
+            ents = []
+        names = [str(e.get("entity_name") or "").strip()
+                 for e in ents if str(e.get("entity_name") or "").strip()]
+        # Dedupe, keep order; drop names shorter than 2 chars (1-char matches
+        # are too noisy — e.g. a single-char entity would match almost any trigger).
+        seen, out = set(), []
+        for n in names:
+            if len(n) >= 2 and n not in seen:
+                seen.add(n)
+                out.append(n)
+        self._trigger_entity_cache = out
+        return out
+
+    @staticmethod
+    def _resolve_trigger_entity(trigger: Optional[str],
+                                entity_names: List[str]) -> str:
+        """ADR-V6-044 (F3): longest entity name that appears in ``trigger``.
+
+        Longest-match wins so "张三丰" is preferred over "张三" when both are
+        entities and both appear. Returns "" when no entity appears in the
+        trigger (a situation-type trigger like "甲方改需求" with no person —
+        correctly excluded from K-grouping). Case-insensitive; trims whitespace.
+        """
+        if not trigger or not entity_names:
+            return ""
+        hay = trigger.strip()
+        if not hay:
+            return ""
+        hay_low = hay.lower()
+        best = ""
+        for name in entity_names:
+            if not name:
+                continue
+            if name.lower() in hay_low and len(name) > len(best):
+                best = name
+        return best
 
     # -- public entry -----------------------------------------------------
 
@@ -248,6 +310,9 @@ class Atomizer:
         # raises (C7); on a store/meta error it returns False (adult default).
         from plugins.realityos_sovereignty.sovereignty import is_minor
         self._minor_mode = is_minor(self._store, self._user_id)
+        # ADR-V6-044 (F3): fresh entity-name cache for this memo's R9→entity
+        # resolution (loaded lazily by _trigger_entity_names()).
+        self._trigger_entity_cache = None
         # ADR-V6-013: build the known-entity vocab once (None on first run / load
         # failure → extraction proceeds vocab-less, never blocked).
         entity_vocab = self._entity_vocab_section()
@@ -511,6 +576,13 @@ class Atomizer:
             # coarse projection.
             r9_direction = {"positive": "up", "negative": "down",
                             "neutral": "stable"}[atom.valence]
+            # ADR-V6-044 (F3): resolve the trigger against the user's known
+            # entities so trigger_source carries an `entity` key — K-correlation
+            # groups emotions by this. "" when the trigger is a situation, not
+            # a known entity (correctly excluded from K-grouping). Option B
+            # (post-hoc resolution) — avoids touching the v12 prompt baseline.
+            r9_entity = self._resolve_trigger_entity(
+                atom.trigger, self._trigger_entity_names())
             self._store.insert_feeling_event(
                 state_type="mood", direction=r9_direction, intensity=atom.intensity,
                 ser_source="llm_text",
@@ -518,7 +590,8 @@ class Atomizer:
                     {"valence": atom.valence, "arousal": atom.arousal,
                      "label": atom.emotion_label}, ensure_ascii=False),
                 trigger_source=json.dumps(
-                    {"trigger": atom.trigger, "atom": "R9_Emotion"},
+                    {"trigger": atom.trigger, "entity": r9_entity,
+                     "atom": "R9_Emotion"},
                     ensure_ascii=False),
                 atom_kind="R9", **common)
         elif isinstance(atom, R0EntityAtom):

@@ -29,6 +29,7 @@ import logging
 import sqlite3
 import threading
 import uuid
+import contextlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -52,6 +53,15 @@ def _now_iso() -> str:
 
 def _uuid() -> str:
     return str(uuid.uuid4())
+
+
+def _from_unix_iso(now_ts: float) -> str:
+    """Unix seconds → ISO-8601 UTC (ADR-V6-044 mark_k_correlation_stale stamp).
+    Matches _now_iso()'s ``+00:00`` shape so stale_at / last_updated align."""
+    try:
+        return datetime.fromtimestamp(float(now_ts), tz=timezone.utc).isoformat()
+    except (TypeError, ValueError, OSError):
+        return _now_iso()
 
 
 def _safe_json(s: Any, default: Any) -> Any:
@@ -959,17 +969,51 @@ class PTGStore:
             )
             return eid
 
+    def ensure_self_entity(self, user_id: str, *, name: str = "我") -> str:
+        """Return the user's self entity id, creating the node if absent.
+
+        ADR-V6-044 (F7): K-correlation edges need a real entities(id) FK for
+        the subject (self); this finds the existing self-node
+        (``properties.is_self``) regardless of its display name, or creates one
+        with the default name. Idempotent. Mirrors the Atomizer's private
+        ``_ensure_self_entity`` but is public so derived computations (K/quark/
+        theory) all anchor on the SAME self node.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, properties FROM entities "
+                "WHERE user_id = ? AND deleted_at IS NULL",
+                (user_id,),
+            ).fetchall()
+            for r in rows:
+                try:
+                    props = json.loads(r["properties"]) if r["properties"] else {}
+                except Exception:  # noqa: BLE001
+                    props = {}
+                if props.get("is_self"):
+                    return r["id"]
+        # No self node yet — create one (upsert_entity is idempotent on name).
+        return self.upsert_entity(
+            user_id=user_id, entity_name=name, entity_type="person",
+            properties={"is_self": True})
+
     def upsert_relation(self, *, user_id: str, subject_id: str, object_id: str,
                         relation_type: str, value: Optional[str] = None,
-                        confidence: Optional[float] = None) -> str:
+                        confidence: Optional[float] = None,
+                        delta: Optional[dict] = None) -> str:
         """Insert-or-bump a graph edge. Idempotent on (user, subject, object, type).
 
         On re-evidence: ``evidence_count += 1``, ``last_updated`` touched,
         ``version`` bumped, confidence kept at the **max** of old/new (a later
-        high-confidence mention raises the edge; a low one never dilutes it).
-        Returns the relation id.
+        high-confidence mention raises the edge; a low one never dilutes it),
+        ``stale_at`` cleared (a re-evidenced edge is current again — ADR-V6-044
+        K-correlation revival). ``delta`` (ADR-V6-044) — when supplied —
+        overwrites the relations.delta JSON with the latest derived snapshot
+        (history preserved in delta.evidence_event_ids + llm_call_logs). Returns
+        the relation id.
         """
         now = _now_iso()
+        delta_json = json.dumps(delta, ensure_ascii=False) if delta is not None else None
         with self._lock:
             row = self._conn.execute(
                 "SELECT id, confidence FROM relations "
@@ -981,22 +1025,91 @@ class PTGStore:
                 rid = row["id"]
                 cur = row["confidence"] if row["confidence"] is not None else 0.0
                 new = confidence if confidence is not None else cur
+                # Build the SET clause; delta is optional (only written when
+                # supplied — preserves a prior delta if the caller re-evidences
+                # without one).
+                sets = ("evidence_count = evidence_count + 1, "
+                        "last_updated = ?, version = version + 1, "
+                        "confidence = ?, stale_at = NULL")
+                params: list = [now, max(cur, new)]
+                if delta_json is not None:
+                    sets += ", delta = ?"
+                    params.append(delta_json)
+                params.append(rid)
                 self._conn.execute(
-                    "UPDATE relations SET evidence_count = evidence_count + 1, "
-                    "last_updated = ?, version = version + 1, confidence = ? "
-                    "WHERE id = ?",
-                    (now, max(cur, new), rid),
-                )
+                    f"UPDATE relations SET {sets} WHERE id = ?", params)
                 return rid
             rid = _uuid()
+            cols = ("id, user_id, subject_id, object_id, relation_type, value, "
+                    "confidence, last_updated, evidence_count, created_at")
+            vals: list = [rid, user_id, subject_id, object_id, relation_type, value,
+                          confidence if confidence is not None else 0.5, now, 1, now]
+            if delta_json is not None:
+                cols += ", delta"
+                vals.append(delta_json)
+            placeholders = ", ".join("?" for _ in vals)
             self._conn.execute(
-                "INSERT INTO relations (id, user_id, subject_id, object_id, "
-                "relation_type, value, confidence, last_updated, evidence_count, "
-                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
-                (rid, user_id, subject_id, object_id, relation_type, value,
-                 confidence if confidence is not None else 0.5, now, now),
-            )
+                f"INSERT INTO relations ({cols}) VALUES ({placeholders})", vals)
             return rid
+
+    @contextlib.contextmanager
+    def transaction(self):
+        """Atomic multi-statement block (ADR-V6-044 / F4).
+
+        The shared connection is ``isolation_level=None`` (autocommit), so each
+        ``execute`` normally commits on its own. K-correlation recompute must
+        land "recompute + revive + invalidate" atomically — a mid-sequence
+        failure would otherwise leave orphan edges (the pre-transaction bug
+        danao14 fixed). Acquires the shared ``_lock`` for the whole block,
+        issues ``BEGIN``, and ``COMMIT``s on clean exit / ``ROLLBACK``s + re-raises
+        on any exception. Re-entrant by the same thread is NOT supported (a
+        nested BEGIN would error); callers keep transaction() at the outermost
+        scope of a unit of work.
+        """
+        with self._lock:
+            self._conn.execute("BEGIN")
+            try:
+                yield
+            except Exception:
+                try:
+                    self._conn.execute("ROLLBACK")
+                except Exception:  # noqa: BLE001 — rollback best-effort
+                    pass
+                raise
+            else:
+                self._conn.execute("COMMIT")
+
+    def mark_k_correlation_stale(self, *, user_id: str, subject_id: str,
+                                 keep_object_ids: set, now_ts: float) -> int:
+        """Mark K_Correlation edges NOT in ``keep_object_ids`` as stale (ADR-V6-044).
+
+        Pure UPDATE (C2 append-only — value/delta/evidence preserved for
+        history); only ``stale_at`` is set, dropping the edge from the "current
+        view" (which filters ``stale_at IS NULL``). ``now_ts`` (unix seconds)
+        is the recompute anchor stamped into stale_at. Returns the count
+        invalidated. Must run inside a ``transaction()`` (the caller groups it
+        with the recompute so revive+invalidate land atomically).
+        """
+        ts = _from_unix_iso(now_ts)
+        with self._lock:
+            if keep_object_ids:
+                placeholders = ", ".join("?" for _ in keep_object_ids)
+                cur = self._conn.execute(
+                    f"UPDATE relations SET stale_at = ? "
+                    f"WHERE user_id = ? AND subject_id = ? "
+                    f"AND relation_type = 'K_Correlation' AND deleted_at IS NULL "
+                    f"AND stale_at IS NULL AND object_id NOT IN ({placeholders})",
+                    (ts, user_id, subject_id, *keep_object_ids),
+                )
+            else:
+                cur = self._conn.execute(
+                    "UPDATE relations SET stale_at = ? "
+                    "WHERE user_id = ? AND subject_id = ? "
+                    "AND relation_type = 'K_Correlation' AND deleted_at IS NULL "
+                    "AND stale_at IS NULL",
+                    (ts, user_id, subject_id),
+                )
+            return cur.rowcount or 0
 
     # ------------------------------------------------------------------
     # Read / recall — the structured-data recall surface (ADR-V6-012)

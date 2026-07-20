@@ -77,7 +77,10 @@ logger = logging.getLogger(__name__)
 # CREATE TABLE IF NOT EXISTS in apply_schema. C2 user-data table (soft-delete +
 # version). tool_args/result_summary are size-capped at capture time (PIPL §6
 # minimization — a web_fetch body is NOT stored whole).
-SCHEMA_VERSION = 6  # v6 (ADR-V6-016): atom_kind column on meaning/feeling events
+SCHEMA_VERSION = 7  # v7 (ADR-V6-044): relations.stale_at for K-correlation
+                    # invalidation (pure UPDATE, append-only — C2). Additive via
+                    # _RECONCILE_COLUMNS so existing v6 DBs heal on reopen.
+                    # v6 (ADR-V6-016): atom_kind column on meaning/feeling events
                     # so R8/R9/R12 can be stored additively without touching the
                     # intent_class/state_type CHECK constraints (no table rebuild).
 
@@ -284,7 +287,13 @@ CREATE TABLE IF NOT EXISTS relations (
     consent_tag     TEXT,
     version         INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at      TEXT
+    deleted_at      TEXT,
+    -- ADR-V6-044 (F4): staleness marker for derived edges (K_Correlation).
+    -- NULL = current/active; a timestamp = the edge lost its current backing
+    -- (recompute dropped it below the gate). Pure-UPDATE invalidation keeps
+    -- value/delta/evidence for history (C2 append-only); the "current view"
+    -- filters stale_at IS NULL.
+    stale_at        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_relations_subject ON relations(subject_id);
 CREATE INDEX IF NOT EXISTS idx_relations_object ON relations(object_id);
@@ -506,8 +515,9 @@ _RECONCILE_COLUMNS: Dict[str, Dict[str, str]] = {
     "llm_call_logs": {"cost_cny": "REAL", "schema_valid": "INTEGER",
                       "prompt_template_version": "TEXT NOT NULL DEFAULT 'v1'"},
     # relations v4 terminal-state columns (§9#1/#5) — additive on existing DBs.
+    # v7 (ADR-V6-044): stale_at for K_Correlation invalidation.
     "relations": {"delta": "TEXT", "completeness": "REAL",
-                  "consent_tag": "TEXT"},
+                  "consent_tag": "TEXT", "stale_at": "TEXT"},
     # quality_metrics v4 columns that legacy V5-era DBs (e.g. ~/.realityos/ptg.db
     # predating the desktop fork) lack: V5 created it with the old `date` column
     # and no user_id / C2 cols. CREATE TABLE IF NOT EXISTS no-ops on the existing

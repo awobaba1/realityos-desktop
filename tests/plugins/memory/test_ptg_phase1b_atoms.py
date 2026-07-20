@@ -347,7 +347,10 @@ class TestAtomizerDispatch:
         vad = json.loads(r9["emotion_vad"])
         assert vad == {"valence": "positive", "arousal": "high", "label": "开心"}
         trg = json.loads(r9["trigger_source"])
-        assert trg == {"trigger": "被领导表扬", "atom": "R9_Emotion"}
+        # F3 (ADR-V6-044): R9 trigger_source now carries an ``entity`` key — the
+        # post-hoc-resolved entity the emotion attaches to, or "" when the trigger
+        # is a situation (here: 被领导表扬 → no known person) rather than an entity.
+        assert trg == {"trigger": "被领导表扬", "entity": "", "atom": "R9_Emotion"}
 
     @pytest.mark.parametrize("valence,direction", [
         ("positive", "up"), ("negative", "down"), ("neutral", "stable"),
