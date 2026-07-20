@@ -32,6 +32,15 @@ _BEIJING_TZ = timezone(timedelta(hours=8))
 # column is CHECK BETWEEN 0 AND 1 — a proxy for "how much to trust this cache").
 _DEFAULT_CONFIDENCE = {"sufficient": 0.8, "partial": 0.5, "insufficient": 0.2}
 
+# F6 sample-size gate (ADR-V6-042): the eight atom kinds a period report may
+# draw conclusions from. The gate caps cached confidence by the weakest
+# PRESENT kind's sample (absent kinds are skipped — they drive no conclusion,
+# the prompt omits empty sections). Override in a subclass to narrow.
+_SAMPLE_GATE_KINDS_DEFAULT = (
+    "R3_Person", "R2_Task", "R7_Expression", "R8_Cognition",
+    "R12_Outcome", "R1_SelfState", "R9_Emotion", "R0_Entity",
+)
+
 
 def beijing_now() -> datetime:
     return datetime.now(_BEIJING_TZ)
@@ -54,6 +63,9 @@ class InsightReportService:
     MIN_CHARS: int = 80               # C5 text floor
     CONFIDENCE_MAP: Dict[str, float] = _DEFAULT_CONFIDENCE
     CACHE_TTL_DAYS: int = 14          # insight_aggregation.expires_at = period_end + N
+    # F6 (ADR-V6-042): atom kinds the sample-size gate grades against. The
+    # cached confidence is capped by the weakest PRESENT kind's sample.
+    SAMPLE_GATE_KINDS: Tuple[str, ...] = _SAMPLE_GATE_KINDS_DEFAULT
 
     def __init__(
         self,
@@ -110,6 +122,20 @@ class InsightReportService:
             content, llm_call_id, schema_valid = self._llm(agg)
 
         confidence = self.CONFIDENCE_MAP.get(sufficiency, 0.2)
+
+        # F6 sample-size gate (ADR-V6-042): cap cached confidence by the weakest
+        # PRESENT atom-kind sample. The cold-start ``data_sufficiency`` gates
+        # generate-vs-placeholder (kept as-is); this gate reflects "how much to
+        # trust the GENERATED content" — a report whose emotion section rests on
+        # n=2 cannot be cached at 0.8 just because the week had many memos.
+        # The sample verdict is recorded in input_data for traceability.
+        from plugins.memory.ptg.confidence_gate import cap_confidence_by_atom_samples
+        sample_conf, sample_suff, sample_kind = cap_confidence_by_atom_samples(
+            confidence, agg.get("atom_counts", {}), self.SAMPLE_GATE_KINDS)
+        confidence = sample_conf
+        agg["sample_sufficiency"] = sample_suff
+        agg["sample_weakest_kind"] = sample_kind
+
         insight_id = self._safe_upsert(
             period_key=win["period_key"],
             period_start=win["start_utc"], period_end=win["end_utc"],
