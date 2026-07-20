@@ -23,9 +23,12 @@ gated on the single-founder tenant:
 PHASE 1 SCOPE (honest)
 ----------------------
 The exercise primitives are real and tested against a live PTGStore. What is
-NOT yet done (documented, not fake-green): a UI to call them, and the
-§6.2 阶段2 cron that runs ``purge_soft_deleted`` nightly. The atoms are here;
-the wiring is the desktop-UI step.
+NOT yet done (documented, not fake-green): a UI to call them, and an automatic
+§6.2 阶段2 scheduler. ``purge_soft_deleted`` itself IS reachable today via the
+``hermes purge`` CLI (ADR-V6-067, founder-invoked, dry-run default) — what's
+deferred is the *automatic* nightly cron, not the purge primitive. (Earlier
+drafts of this docstring + web_server.py falsely claimed a nightly cron already
+ran purge; that was documentation fake-green — no scheduler was ever wired.)
 
 C2 / C7: cascade_soft_delete only ever sets ``deleted_at`` (soft). purge is the
 single hard-DELETE surface and is explicit + opt-in (never auto-run in tests).
@@ -187,6 +190,7 @@ def purge_soft_deleted(
     *,
     older_than_days: int = 1,
     tables: Optional[List[str]] = None,
+    dry_run: bool = False,
 ) -> Dict[str, int]:
     """§6.2 阶段2 — physical hard-DELETE of rows soft-deleted more than
     ``older_than_days`` ago (the grace window).
@@ -194,9 +198,17 @@ def purge_soft_deleted(
     THIS IS THE ONE LEGITIMATE HARD-DELETE SURFACE IN V6. It is C2-compliant
     because every row it removes was already soft-deleted (deleted_at set) and
     the grace window expired — §6.2 explicitly mandates this physical purge.
-    Opt-in: never auto-run; the §6.2 nightly cron (Phase 1+) calls this.
 
-    Returns ``{table: count_purged}``. Never raises (C7).
+    Opt-in + NEVER auto-scheduled (ADR-V6-067). There is NO nightly cron wired
+    today — earlier comments here and in web_server.py falsely asserted one
+    existed (documentation fake-green). The sole production caller is the
+    ``hermes purge`` CLI (founder-invoked, dry-run default, ``--confirm`` to
+    execute). A future §6.2 scheduler may call this; until then soft-deleted
+    rows persist past the grace window until a manual purge runs.
+
+    ``dry_run=True`` counts eligible rows per table WITHOUT deleting (the CLI's
+    safe default) — returns ``{table: eligible_count}``. ``dry_run=False``
+    executes the DELETE and returns ``{table: purged_count}``. Never raises (C7).
     """
     from plugins.memory.ptg import schema as ptg_schema
     scope = tables or list(ptg_schema.C2_USER_TABLES)
@@ -204,14 +216,24 @@ def purge_soft_deleted(
     try:
         with store._lock:
             for t in scope:
-                cur = store._conn.execute(
-                    f"DELETE FROM {t} "
-                    f"WHERE deleted_at IS NOT NULL "
-                    f"AND deleted_at < datetime('now', ?)",
-                    (f"-{int(older_than_days)} days",),
-                )
-                if cur.rowcount:
-                    out[t] = int(cur.rowcount)
+                if dry_run:
+                    cnt = store._conn.execute(
+                        f"SELECT COUNT(*) FROM {t} "
+                        f"WHERE deleted_at IS NOT NULL "
+                        f"AND deleted_at < datetime('now', ?)",
+                        (f"-{int(older_than_days)} days",),
+                    ).fetchone()[0]
+                    if cnt:
+                        out[t] = int(cnt)
+                else:
+                    cur = store._conn.execute(
+                        f"DELETE FROM {t} "
+                        f"WHERE deleted_at IS NOT NULL "
+                        f"AND deleted_at < datetime('now', ?)",
+                        (f"-{int(older_than_days)} days",),
+                    )
+                    if cur.rowcount:
+                        out[t] = int(cur.rowcount)
     except Exception as exc:  # noqa: BLE001
         logger.warning("purge_soft_deleted failed: %s", exc)
     return out

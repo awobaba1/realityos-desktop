@@ -328,6 +328,7 @@ from hermes_cli.subcommands.theory import build_theory_parser
 from hermes_cli.subcommands.k import build_k_parser
 from hermes_cli.subcommands.citation import build_citation_parser
 from hermes_cli.subcommands.dlq import build_dlq_parser
+from hermes_cli.subcommands.purge import build_purge_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -12677,7 +12678,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "config", "console", "cron", "curator", "dashboard", "serve", "debug", "dlq", "doctor",
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "gui", "desktop", "k", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "memo", "migrate", "moa",
-        "people",
+        "people", "purge",
         "quark", "theory",
         "journey", "memory-graph", "learning",
         "model", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
@@ -13245,6 +13246,20 @@ def cmd_dlq(args):
     compliant; failure payload never mutated).
     """
     from hermes_cli.dlq_cmd import cmd_dlq as _run
+
+    return _run(args)
+
+
+def cmd_purge(args):
+    """``hermes purge`` — §6.2 阶段2 physical-purge surface (ADR-V6-067).
+
+    Thin delegate to ``hermes_cli.purge_cmd``; the SOLE production caller of
+    purge_soft_deleted (sovereignty.py). Until this CLI that primitive was
+    orphan code (zero non-test callers) while comments falsely claimed a
+    nightly cron ran it (做了没发 ADR-V6-037 + documentation fake-green).
+    DRY-RUN DEFAULT; --confirm executes the single C2 hard-DELETE exception.
+    """
+    from hermes_cli.purge_cmd import cmd_purge as _run
 
     return _run(args)
 
@@ -15091,6 +15106,7 @@ def main():
     build_k_parser(subparsers, cmd_k=cmd_k)
     build_citation_parser(subparsers, cmd_citation=cmd_citation)
     build_dlq_parser(subparsers, cmd_dlq=cmd_dlq)
+    build_purge_parser(subparsers, cmd_purge=cmd_purge)
 
     # =========================================================================
     # claw command  (parser built in hermes_cli/subcommands/claw.py)

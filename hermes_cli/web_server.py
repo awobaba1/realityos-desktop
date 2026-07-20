@@ -12353,8 +12353,11 @@ async def get_memory_browse(request: Request) -> dict:
 # Fail-open (C7): store open failure / no founder / any exception → HTTP 200 +
 # structured payload, never 5xx, never throws to the UI (same contract as the
 # insight/memory read APIs). Cascade is SOFT-MARK only (§6.2 阶段1) — physical
-# purge (purge_soft_deleted) is a separate opt-in nightly cron, never a UI
-# one-click. consent_tag UI is deferred (needs relations row-level id exposure).
+# purge (purge_soft_deleted) is opt-in via the `hermes purge` CLI (ADR-V6-067,
+# founder-invoked, dry-run default, --confirm to execute) — NOT a UI one-click
+# and NOT (yet) an automatic nightly cron: no scheduler is wired today (earlier
+# drafts of this comment falsely claimed a nightly cron ran it). consent_tag UI
+# is deferred (needs relations row-level id exposure).
 # ---------------------------------------------------------------------------
 
 
