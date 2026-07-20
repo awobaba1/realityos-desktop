@@ -74,6 +74,14 @@ _MAX_TOOL_WORKERS = 8
 # Keep this above the stock auxiliary.web_extract timeout (360s) so the batch
 # guard does not preempt a slow-but-valid summarization attempt.
 _DEFAULT_CONCURRENT_TOOL_TIMEOUT_S = 420.0
+# Per-tool deadline for the SEQUENTIAL execution path (ADR-V6-059). The
+# sequential path runs one tool at a time on the agent main thread (it exists
+# to serve interactive/single-call tools), so unlike the concurrent batch
+# guard this is a COOPERATIVE deadline: on expiry it fires the per-thread
+# interrupt signal — tools that poll it (terminal, execute_code, MCP-with-
+# cancellation) abort; main-thread tools that don't poll it are not preempted
+# (Python cannot force-kill a synchronous main-thread call — see ADR-V6-059).
+_DEFAULT_SEQUENTIAL_TOOL_TIMEOUT_S = 420.0
 
 
 def _parse_tool_arguments(raw_arguments: Any) -> tuple[dict, Optional[str]]:
@@ -111,6 +119,106 @@ def _resolve_concurrent_tool_timeout() -> float | None:
     if value <= 0:
         return None
     return value
+
+
+def _resolve_sequential_tool_timeout() -> float | None:
+    """Per-tool deadline for the SEQUENTIAL execution path (ADR-V6-059).
+
+    Mirrors ``_resolve_concurrent_tool_timeout`` but applies PER TOOL (the
+    sequential path runs one tool at a time). The deadline is COOPERATIVE: on
+    expiry it fires the interrupt signal; tools that poll it abort, others run
+    to completion (Python cannot force-kill a main-thread call). ``None`` /
+    ``<= 0`` disables the deadline entirely.
+    """
+    raw = os.getenv("HERMES_SEQUENTIAL_TOOL_TIMEOUT_S", "").strip()
+    if not raw:
+        return _DEFAULT_SEQUENTIAL_TOOL_TIMEOUT_S
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "invalid HERMES_SEQUENTIAL_TOOL_TIMEOUT_S=%r; using %.0fs",
+            raw, _DEFAULT_SEQUENTIAL_TOOL_TIMEOUT_S,
+        )
+        return _DEFAULT_SEQUENTIAL_TOOL_TIMEOUT_S
+    if value <= 0:
+        return None
+    return value
+
+
+def _arm_sequential_tool_deadline(
+    agent, function_name, tool_call_id, timeout_s,
+    effective_task_id, middleware_trace,
+):
+    """Arm a cooperative per-tool deadline watchdog for one sequential tool (ADR-V6-059).
+
+    The sequential path executes tools on the AGENT MAIN THREAD (it exists to
+    serve interactive / single-call tools), so a hung tool CANNOT be
+    force-killed — Python provides no safe way to terminate a synchronous
+    main-thread call. This watchdog is the cooperative remedy, mirroring the
+    concurrent path's per-thread interrupt (line ~587):
+
+    * on expiry it fires ``_ra()._set_interrupt(True, main_thread_ident)`` —
+      the same cooperative signal the concurrent path uses. Tools that poll the
+      interrupt (terminal, execute_code, MCP-with-cancellation) abort at the
+      deadline;
+    * it sets ``agent._interrupt_requested`` so subsequent tools in the loop are
+      skipped (the loop checks this flag before each tool);
+    * it emits ``_emit_terminal_post_tool_call(status="timeout", error_type="tool_timeout")``
+      — the same persistent-error-log path the concurrent path uses on batch
+      timeout — so the overrun is OBSERVABLE, never a silent infinite hang (C7).
+
+    Tools that do NOT poll the interrupt are NOT preempted (documented Python
+    limitation; the concurrent path is the remedy for non-interactive batch
+    tools). The returned Timer MUST be ``.cancel()``-ed by the caller once the
+    tool returns (the sequential loop cancels at iteration end);
+    ``Timer.cancel()`` is idempotent. Returns ``None`` when ``timeout_s`` is
+    disabled (None / ≤0).
+    """
+    import threading
+    if timeout_s is None or timeout_s <= 0:
+        return None
+
+    def _fire():
+        # Watchdog must NEVER raise (it runs on its own thread; an exception
+        # here would be silently lost and the agent would still hang).
+        try:
+            tid = threading.main_thread().ident
+            try:
+                _ra()._set_interrupt(True, tid)
+            except Exception:  # noqa: BLE001 — best-effort cooperative signal
+                pass
+            agent._interrupt_requested = True
+            logger.warning(
+                "sequential tool '%s' exceeded %.1fs deadline — cooperative "
+                "interrupt signalled (main-thread tools that don't poll "
+                "interrupt are not preempted; see ADR-V6-059)",
+                function_name, timeout_s,
+            )
+            try:
+                _emit_terminal_post_tool_call(
+                    agent,
+                    function_name=function_name,
+                    function_args={},
+                    result=(f"Error executing tool '{function_name}': exceeded "
+                            f"sequential deadline {timeout_s:.1f}s"),
+                    effective_task_id=effective_task_id,
+                    tool_call_id=tool_call_id,
+                    status="timeout",
+                    error_type="tool_timeout",
+                    error_message=(f"sequential tool deadline "
+                                   f"{timeout_s:.1f}s exceeded"),
+                    middleware_trace=list(middleware_trace),
+                )
+            except Exception:  # noqa: BLE001 — observability best-effort
+                pass
+        except Exception:  # noqa: BLE001
+            pass
+
+    timer = threading.Timer(timeout_s, _fire)
+    timer.daemon = True
+    timer.start()
+    return timer
 
 
 def _flush_session_db_after_tool_progress(
@@ -1034,7 +1142,10 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
     """
     # Resolve the context-scaled tool-output budget once per turn.
     _tool_budget = _budget_for_agent(agent)
+    # ADR-V6-059: cooperative per-tool deadline for the sequential path.
+    _seq_tool_timeout = _resolve_sequential_tool_timeout()
     for i, tool_call in enumerate(assistant_message.tool_calls, 1):
+        _seq_deadline_timer = None
         # SAFETY: check interrupt BEFORE starting each tool.
         # If the user sent "stop" during a previous tool's execution,
         # do NOT start any more tools -- skip them all immediately.
@@ -1210,6 +1321,14 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 pass  # never block tool execution
 
         tool_start_time = time.time()
+        # ADR-V6-059: arm the cooperative per-tool deadline. Cancelled at
+        # iteration end (``_seq_deadline_timer.cancel()`` before _current_tool
+        # is cleared). Only armed for tools that actually execute (not blocked).
+        if not _execution_blocked and _seq_tool_timeout is not None:
+            _seq_deadline_timer = _arm_sequential_tool_deadline(
+                agent, function_name, getattr(tool_call, "id", "") or "",
+                _seq_tool_timeout, effective_task_id, middleware_trace,
+            )
 
         if _block_msg is not None:
             # Tool blocked by plugin policy — return error without executing.
@@ -1630,6 +1749,8 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             except Exception as cb_err:
                 logging.debug(f"Tool progress callback error: {cb_err}")
 
+        if _seq_deadline_timer is not None:
+            _seq_deadline_timer.cancel()
         agent._current_tool = None
         agent._touch_activity(f"tool completed: {function_name} ({tool_duration:.1f}s)")
 
