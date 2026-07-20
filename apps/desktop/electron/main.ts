@@ -54,6 +54,8 @@ import {
   resolveTestWsUrl,
   tokenPreview
 } from './connection-config'
+// ADR-V6-038 D3 — electron 主进程崩溃兜底(纯本地落盘,C7 无静默失败)。
+import { installCrashGuard } from './crash-guard'
 import { adoptServedDashboardToken } from './dashboard-token'
 import {
   buildPosixCleanupScript,
@@ -9147,6 +9149,9 @@ app.on('open-url', (event, url) => {
   event.preventDefault()
   handleDeepLink(url)
 })
+
+// ADR-V6-038 D3 — 注册崩溃兜底,要在 app 启动逻辑之前捕获启动期异常。
+installCrashGuard(DESKTOP_LOG_PATH)
 
 app.whenReady().then(() => {
   if (IS_MAC) {
