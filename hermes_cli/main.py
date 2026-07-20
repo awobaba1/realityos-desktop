@@ -326,6 +326,7 @@ from hermes_cli.subcommands.people import build_people_parser
 from hermes_cli.subcommands.quark import build_quark_parser
 from hermes_cli.subcommands.theory import build_theory_parser
 from hermes_cli.subcommands.k import build_k_parser
+from hermes_cli.subcommands.citation import build_citation_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -12670,7 +12671,7 @@ def _build_provider_choices() -> list[str]:
 # to parse.
 _BUILTIN_SUBCOMMANDS = frozenset(
     {
-        "acp", "auth", "backup", "bundles", "calibrate", "checkpoints", "claw", "completion",
+        "acp", "auth", "backup", "bundles", "calibrate", "checkpoints", "citation", "claw", "completion",
         "computer-use",
         "config", "console", "cron", "curator", "dashboard", "serve", "debug", "doctor",
         "dump", "fallback", "gateway", "hooks", "import", "insights",
@@ -13214,6 +13215,20 @@ def cmd_k(args):
     zero LLM). Reads feeling_events/entities, writes only the relations graph.
     """
     from hermes_cli.k_cmd import cmd_k as _run
+
+    return _run(args)
+
+
+def cmd_citation(args):
+    """``hermes citation`` — G1 citation-credibility READ surface (ADR-V6-063).
+
+    Thin delegate to ``hermes_cli.citation_cmd``; reads the grounded/ungrounded
+    turn counters ``PTGProvider._observe_citation_quality`` bumps each turn
+    (ADR-V6-043). Until this CLI, the counters were write-only-no-consumer
+    (做了没发, ADR-V6-037) — ADR-V6-043's "计数器可追溯 · 跨重启可查" promise
+    was paper-only. Read-only: reads ``ptg_meta``, writes nothing.
+    """
+    from hermes_cli.citation_cmd import cmd_citation as _run
 
     return _run(args)
 
@@ -15058,6 +15073,7 @@ def main():
     # K-domain correlation compute + show — ADR-V6-056 / ADR-V6-044.
     # =========================================================================
     build_k_parser(subparsers, cmd_k=cmd_k)
+    build_citation_parser(subparsers, cmd_citation=cmd_citation)
 
     # =========================================================================
     # claw command  (parser built in hermes_cli/subcommands/claw.py)

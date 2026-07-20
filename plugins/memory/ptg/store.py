@@ -984,6 +984,49 @@ class PTGStore:
             return None
         return row[0] if row is not None else None
 
+    def citation_stats(self) -> Dict[str, Any]:
+        """Read the G1 citation-credibility counters (ADR-V6-043 / ADR-V6-063).
+
+        Returns ``{grounded, ungrounded, total, ungrounded_ratio}``. These are
+        bumped per turn by ``PTGProvider._observe_citation_quality``; this
+        method + the ``hermes citation`` CLI are the READ surface that fulfills
+        ADR-V6-043's "计数器可追溯 · 跨重启可查" promise. Until them, the
+        counters were write-only-no-consumer (ADR-V6-037 做了没发) — the
+        promise was on paper only.
+
+        Read-only, never raises (C7); a malformed value counts as 0 (defensive
+        — ``_bump_meta`` always writes digit strings, but a hand-edited DB row
+        must not crash the read surface).
+        """
+        out: Dict[str, Any] = {
+            "grounded": 0, "ungrounded": 0, "total": 0, "ungrounded_ratio": None,
+        }
+        try:
+            with self._lock:
+                rows = self._conn.execute(
+                    "SELECT key, value FROM ptg_meta WHERE key IN (?, ?)",
+                    ("citation_grounded_turns", "citation_ungrounded_turns"),
+                ).fetchall()
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("citation_stats read failed: %s", exc)
+            return out
+        vals = {k: self._meta_int(v) for k, v in rows}
+        g = vals.get("citation_grounded_turns", 0)
+        u = vals.get("citation_ungrounded_turns", 0)
+        out["grounded"] = g
+        out["ungrounded"] = u
+        out["total"] = g + u
+        out["ungrounded_ratio"] = (u / (g + u)) if (g + u) > 0 else None
+        return out
+
+    @staticmethod
+    def _meta_int(v) -> int:
+        """Parse a ptg_meta value as int, fail-safe to 0 (C7)."""
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+
     def recent_quality_metrics(
         self,
         *,
