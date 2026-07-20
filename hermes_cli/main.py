@@ -321,6 +321,7 @@ from hermes_cli.subcommands.mcp import build_mcp_parser
 from hermes_cli.subcommands.claw import build_claw_parser
 from hermes_cli.subcommands.calibrate import build_calibrate_parser
 from hermes_cli.subcommands.task import build_task_parser
+from hermes_cli.subcommands.memo import build_memo_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -12669,7 +12670,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "computer-use",
         "config", "console", "cron", "curator", "dashboard", "serve", "debug", "doctor",
         "dump", "fallback", "gateway", "hooks", "import", "insights",
-        "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
+        "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "memo", "migrate", "moa",
         "journey", "memory-graph", "learning",
         "model", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
         "project", "proxy",
@@ -13147,6 +13148,18 @@ def cmd_task(args):
     logic lives in ``PTGStore.mark_task_outcome`` / ``list_open_tasks``.
     """
     from hermes_cli.task_cmd import cmd_task as _run
+
+    return _run(args)
+
+
+def cmd_memo(args):
+    """``hermes memo`` — source-text correction + re-extraction (ADR-V6-047 / A4).
+
+    Thin delegate to ``hermes_cli.memo_cmd``; the closed-loop logic lives in
+    ``plugins.memory.ptg.correction.re_extract_memo`` (correct → snapshot →
+    re-extract → retire OLD only on success → invalidate insights).
+    """
+    from hermes_cli.memo_cmd import cmd_memo as _run
 
     return _run(args)
 
@@ -14961,6 +14974,12 @@ def main():
     # R12 explicit task-outcome pathway — ADR-V6-046 / A3.
     # =========================================================================
     build_task_parser(subparsers, cmd_task=cmd_task)
+
+    # =========================================================================
+    # memo command  (parser built in hermes_cli/subcommands/memo.py)
+    # Source-text correction + re-extraction — ADR-V6-047 / A4.
+    # =========================================================================
+    build_memo_parser(subparsers, cmd_memo=cmd_memo)
 
     # =========================================================================
     # claw command  (parser built in hermes_cli/subcommands/claw.py)

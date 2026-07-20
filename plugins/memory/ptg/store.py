@@ -282,6 +282,60 @@ class PTGStore:
             )
             return memo_id
 
+    def correct_memo_source_text(
+        self, *, user_id: str, memo_id: str, corrected_text: str,
+        actor: str = "user", reason: Optional[str] = None,
+        expected_version: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """§源文本纠正 — record the user's ASR/typo correction on a memo
+        (ADR-V6-047 / A4). Pure-CRUD: it does NOT re-extract (the LLM call lives
+        in ``correction.re_extract_memo``, never inside the store's lock).
+
+        C2 (danao13 ADR-056): the original ``source_text`` is NEVER modified —
+        only ``corrected_text`` + ``version`` bump + ``updated_at``. Optimistic
+        concurrency via ``expected_version``: a mismatch → ``version_conflict``
+        (caller surfaces it). No-op (returns ``unchanged``) when the corrected
+        text equals the effective text (corrected_text ?? source_text) stripped.
+        Never raises (C7) — returns ``{ok, status, memo_id, version, ...}``.
+        """
+        corrected_text = (corrected_text or "")
+        try:
+            with self._lock:
+                row = self._conn.execute(
+                    "SELECT source_text, corrected_text, version, deleted_at "
+                    "FROM memos WHERE id=? AND user_id=?",
+                    (memo_id, user_id),
+                ).fetchone()
+                if row is None:
+                    return {"ok": False, "status": "not_found", "memo_id": memo_id}
+                if row["deleted_at"] is not None:
+                    return {"ok": False, "status": "deleted", "memo_id": memo_id}
+                if expected_version is not None and row["version"] != expected_version:
+                    return {"ok": False, "status": "version_conflict",
+                            "memo_id": memo_id, "version": row["version"]}
+                effective = (row["corrected_text"] or row["source_text"] or "").strip()
+                if effective == corrected_text.strip():
+                    return {"ok": True, "status": "unchanged", "memo_id": memo_id,
+                            "version": row["version"]}
+                new_version = int(row["version"]) + 1
+                # memos has no updated_at (V6 convention: version bump is the
+                # mutation marker; the correction event is timestamped via the
+                # paired deletion_log rows for retired atoms).
+                self._conn.execute(
+                    "UPDATE memos SET corrected_text=?, version=? "
+                    "WHERE id=? AND user_id=?",
+                    (corrected_text, new_version, memo_id, user_id),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("correct_memo_source_text failed (%s): %s", memo_id, exc)
+            return {"ok": False, "status": "error", "memo_id": memo_id,
+                    "error": str(exc)}
+        logger.info("correct_memo_source_text user=%s memo=%s v%s (%s/%s)",
+                    user_id, memo_id, new_version, actor, reason or "user_correction")
+        return {"ok": True, "status": "corrected", "memo_id": memo_id,
+                "version": new_version, "old_text": effective,
+                "new_text": corrected_text}
+
     def search_memos_fts(
         self,
         query: str,
@@ -1636,6 +1690,106 @@ class PTGStore:
         except Exception:  # noqa: BLE001
             logger.warning("list_deletion_log read failed:", exc_info=True)
             return []
+
+    # ------------------------------------------------------------------
+    # Memo correction atom lifecycle (ADR-V6-047 / A4)
+    # ------------------------------------------------------------------
+
+    # The four atom event tables linked to a memo via _EVENT_SPINE.memo_id.
+    _MEMO_ATOM_TABLES = (
+        "identity_events", "meaning_events", "feeling_events", "entity_events",
+    )
+
+    def snapshot_memo_atom_ids(
+        self, user_id: str, memo_id: str,
+    ) -> Dict[str, List[str]]:
+        """Snapshot the LIVE atom row ids for one memo across the 4 event tables
+        (ADR-V6-047). The re-extract flow captures this BEFORE re-atomizing, then
+        retires exactly these ids (by id, not by memo_id) — so the freshly-written
+        atoms survive and the old ones don't. Pure read, never raises (C7).
+        """
+        out: Dict[str, List[str]] = {}
+        try:
+            with self._lock:
+                for t in self._MEMO_ATOM_TABLES:
+                    rows = self._conn.execute(
+                        f"SELECT id FROM {t} "
+                        f"WHERE user_id=? AND memo_id=? AND deleted_at IS NULL",
+                        (user_id, memo_id),
+                    ).fetchall()
+                    out[t] = [r["id"] for r in rows]
+        except Exception:  # noqa: BLE001
+            logger.warning("snapshot_memo_atom_ids failed (%s):", memo_id, exc_info=True)
+        return out
+
+    def soft_delete_atom_ids(
+        self, *, user_id: str, ids_by_table: Dict[str, List[str]],
+        actor: str = "user", reason: str = "memo_corrected",
+    ) -> int:
+        """Retire specific atom rows (by exact id, per table) + one ``deletion_log``
+        audit row each, in ONE transaction (ADR-V6-047 / A4 写后删's delete half).
+
+        Unlike ``soft_delete(table, row_id)`` this retires a snapshot's worth of
+        rows atomically — the re-extract flow uses it to retire the OLD atoms only
+        after the corrected-text re-extraction succeeded (C2: old atoms soft-deleted
+        with audit, never hard-removed; recoverable). Returns the count retired.
+        Never raises (C7) — a tx failure rolls back and returns 0.
+        """
+        total = 0
+        try:
+            with self.transaction():
+                now = _now_iso()
+                for table, ids in ids_by_table.items():
+                    if not ids or table not in self._MEMO_ATOM_TABLES:
+                        continue
+                    # snapshot each row before retiring (deletion_log.snapshot)
+                    snaps = self._conn.execute(
+                        f"SELECT * FROM {table} "
+                        f"WHERE user_id=? AND id IN ({','.join('?'*len(ids))}) "
+                        f"AND deleted_at IS NULL",
+                        (user_id, *ids),
+                    ).fetchall()
+                    if not snaps:
+                        continue
+                    placeholders = ",".join("?" for _ in snaps)
+                    ids_to_retire = [r["id"] for r in snaps]
+                    self._conn.execute(
+                        f"UPDATE {table} SET deleted_at=? "
+                        f"WHERE id IN ({placeholders})",
+                        (now, *ids_to_retire),
+                    )
+                    for r in snaps:
+                        d = dict(r)
+                        self._conn.execute(
+                            "INSERT INTO deletion_log"
+                            "(id, user_id, table_name, record_id, actor, reason, snapshot) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (_uuid(), user_id, table, d.get("id"), actor, reason,
+                             json.dumps(d, ensure_ascii=False, default=str)),
+                        )
+                    total += len(ids_to_retire)
+        except Exception:  # noqa: BLE001 — tx rolled back; report 0
+            logger.warning("soft_delete_atom_ids tx failed: ", exc_info=True)
+            return 0
+        return total
+
+    def invalidate_insights(self, user_id: str) -> int:
+        """Force the tenant's cached insights to regenerate after a correction
+        (ADR-V6-047). V6 has no Redis; ``insight_aggregation.expires_at`` is the
+        local TTL surface — setting it to now makes every cached row expire
+        immediately. Pure UPDATE, never raises (C7). Returns rows touched."""
+        try:
+            with self._lock:
+                now = _now_iso()
+                cur = self._conn.execute(
+                    "UPDATE insight_aggregation SET expires_at=? "
+                    "WHERE user_id=? AND (expires_at IS NULL OR expires_at > ?)",
+                    (now, user_id, now),
+                )
+                return int(cur.rowcount or 0)
+        except Exception:  # noqa: BLE001
+            logger.warning("invalidate_insights failed:", exc_info=True)
+            return 0
 
     def count_rows(self, table: str, *, include_deleted: bool = False) -> int:
         """Row count for tests / diagnostics. Respects soft-delete by default.
