@@ -89,6 +89,47 @@ def _v6_should_dormant(name: str) -> bool:
     return name in _V6_EXTERNAL_MEMORY_BLOCKLIST and not _external_memory_allowed()
 
 
+def _activate_memory_provider_guarded(manager, name: str, load_fn) -> bool:
+    """RealityOS V6 sovereignty ACTIVATION guard (ADR-V6-025 / ADR-V6-062).
+
+    The live ``memory.provider`` receives ``sync_turn`` — user conversation
+    data (PIPL L3). An external SaaS backend would exfiltrate that off-device,
+    breaking V6's zero-server promise. This is the ACTIVATION chokepoint
+    (called from ``agent_init``): load the provider, and if it is an external
+    SaaS backend (per :func:`_v6_should_dormant`), REFUSE to register it and
+    warn loudly (C7 — never silently); otherwise register it to ``manager``.
+
+    Returns True iff a provider was loaded, available, NOT dormant, and
+    registered. Returns False otherwise (not found / unavailable / dormant).
+    The caller falls back to local memory when False.
+
+    Extracted from the inline ``agent_init`` block (ADR-V6-062) so the
+    sovereignty activation contract — *a dormant name never reaches*
+    ``manager.add_provider`` — is unit-pinned end-to-end (C4). The extraction
+    is behavior-equivalent: the prior inline block did exactly
+    load → available? → dormant? → warn+null → else add_provider. The
+    sovereignty warning now logs on the ``plugins.memory`` logger (it lived
+    on the ``agent_init`` logger before) — same message, same trigger; this
+    co-locates the warning with the guard that owns it (ADR-V6-062 D2).
+
+    ``load_fn`` is injected (rather than imported) so tests can substitute a
+    fake loader without monkeypatching the module global.
+    """
+    mp = load_fn(name)
+    if not (mp and mp.is_available()):
+        return False
+    if _v6_should_dormant(name):
+        logger.warning(
+            "realityos sovereignty: active memory provider '%s' "
+            "is an external SaaS backend — dormant in V6 (would "
+            "exfiltrate user conversation data off-device). Not "
+            "activating; using local memory only. Set "
+            "HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY=1 to override.",
+            name)
+        return False
+    manager.add_provider(mp)
+    return True
+
 
 def _register_synthetic_package(name: str, search_locations: List[str]) -> None:
     """Register an empty package shell in sys.modules.

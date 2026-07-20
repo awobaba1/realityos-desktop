@@ -1441,28 +1441,20 @@ def init_agent(
                 from agent.memory_manager import MemoryManager as _MemoryManager
                 from plugins.memory import load_memory_provider as _load_mem
                 agent._memory_manager = _MemoryManager()
-                _mp = _load_mem(_mem_provider_name)
-                if _mp and _mp.is_available():
-                    # RealityOS V6 (ADR-V6-025): sovereignty ACTIVATION guard.
-                    # The live memory.provider receives sync_turn — user
-                    # conversation data. An external SaaS backend would
-                    # exfiltrate that off-device, breaking the zero-server
-                    # promise. Refuse to activate it; fall back to local memory
-                    # only. Discovery/config elsewhere is unaffected (the
-                    # provider stays configurable & inspectable) — the guard is
-                    # at activation, not discovery.
-                    from plugins.memory import _v6_should_dormant
-                    if _v6_should_dormant(_mem_provider_name):
-                        logger.warning(
-                            "realityos sovereignty: active memory provider '%s' "
-                            "is an external SaaS backend — dormant in V6 (would "
-                            "exfiltrate user conversation data off-device). Not "
-                            "activating; using local memory only. Set "
-                            "HERMES_REALITYOS_ALLOW_EXTERNAL_MEMORY=1 to override.",
-                            _mem_provider_name)
-                        _mp = None
-                    else:
-                        agent._memory_manager.add_provider(_mp)
+                # RealityOS V6 (ADR-V6-025 / ADR-V6-062): sovereignty
+                # ACTIVATION guard. The live memory.provider receives
+                # sync_turn — user conversation data. An external SaaS
+                # backend would exfiltrate that off-device, breaking the
+                # zero-server promise. Refuse to activate it; fall back to
+                # local memory only. Discovery/config elsewhere is unaffected
+                # (the provider stays configurable & inspectable) — the guard
+                # is at activation, not discovery. Extracted to a tested helper
+                # (ADR-V6-062) so the dormant-name-never-activated contract is
+                # unit-pinned (C4); behavior-equivalent to the prior inline
+                # load → available? → dormant? → warn+null → else add_provider.
+                from plugins.memory import _activate_memory_provider_guarded
+                _activate_memory_provider_guarded(
+                    agent._memory_manager, _mem_provider_name, _load_mem)
                 if agent._memory_manager.providers:
                     _init_kwargs = {
                         "session_id": agent.session_id,
