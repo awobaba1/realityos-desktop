@@ -17,9 +17,10 @@ The three observer hooks and their sink status:
                             agent runs becomes a personal-timeline asset.
                             Validated through CaptureEvent (C5-adjacent); a
                             malformed payload → DLQ, never silently dropped.
-  * pre_gateway_dispatch  → outbound-message capture (audit-log; deferred to v2
-                            per D4 — PTGProvider.sync_turn already covers the
-                            outbound turn via the user-message surface).
+  * pre_gateway_dispatch  → outbound-message audit-log (Phase 0: allow + log,
+                            no rewrite). post-send semantic capture deferred
+                            per ADR-V6-064 (needs gateway send-completion
+                            callback — cross-layer, Phase 1+ scope).
   * on_session_end        → session batch extraction hook point (audit-log only;
                             semantic extraction arrives with the extraction phase).
 
@@ -155,7 +156,11 @@ def _on_pre_gateway_dispatch(**kwargs):
     """Outbound (gateway) message before auth/dispatch — audit log.
 
     Phase 0 returns None (allow, no rewrite/skip). post_gateway_send semantic
-    capture is deferred to v2 per D4.
+    capture is deferred per ADR-V6-064: pre_gateway_dispatch already audits
+    outbound in Phase 0, and post-send semantic capture needs a gateway
+    send-completion callback (cross-layer behavior change, out of Phase 0
+    scope). Replaces the prior baseless "per D4" reference — ADR-V6-003 has no
+    D4 section (T5 audit finding).
     """
     event = kwargs.get("event")
     gateway = kwargs.get("gateway")
