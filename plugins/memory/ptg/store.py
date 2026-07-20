@@ -1401,6 +1401,50 @@ class PTGStore:
                 )
             return cur.rowcount or 0
 
+    def k_correlation_edges(self, user_id: str, *, include_stale: bool = False
+                            ) -> List[Dict[str, Any]]:
+        """Current K_Correlation edges (ADR-V6-056 / ``hermes k show``).
+
+        The read surface for the K-domain consumer. Joins the object entity name
+        and parses the ``delta`` JSON (lift / sample_size / polarity / baselines)
+        so the CLI renders "entity → polarity (lift X, n=Y)" without a second
+        pass. Returns current edges only (``stale_at IS NULL``) unless
+        ``include_stale`` — the "current view" of co-occurrence (PRD 01:93:
+        correlation != causation, stated not implied). Pure SQL, no LLM.
+        Respects soft-delete. Ordered confidence DESC, evidence_count DESC.
+        """
+        stale_clause = "" if include_stale else "AND r.stale_at IS NULL"
+        with self._lock:
+            rows = self._conn.execute(
+                f"""SELECT r.value, r.confidence, r.evidence_count, r.delta,
+                           o.entity_name AS object_name
+                    FROM relations r
+                    JOIN entities o ON o.id = r.object_id
+                    WHERE r.user_id = ? AND r.relation_type = 'K_Correlation'
+                          AND r.deleted_at IS NULL {stale_clause}
+                    ORDER BY r.confidence DESC, r.evidence_count DESC""",
+                [user_id],
+            ).fetchall()
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            try:
+                delta = json.loads(r["delta"] or "{}")
+            except (ValueError, TypeError):
+                delta = {}
+            out.append({
+                "object_name": r["object_name"],
+                "polarity": r["value"],
+                "confidence": r["confidence"],
+                "sample_size": delta.get("sample_size"),
+                "lift": delta.get("lift"),
+                "p_neg_given_entity": delta.get("p_neg_given_entity"),
+                "p_neg_baseline": delta.get("p_neg_baseline"),
+                "valence_mode": delta.get("valence_mode"),
+                "evidence_count": r["evidence_count"],
+                "method": delta.get("method"),
+            })
+        return out
+
     # ------------------------------------------------------------------
     # Read / recall — the structured-data recall surface (ADR-V6-012)
     # ------------------------------------------------------------------

@@ -325,6 +325,7 @@ from hermes_cli.subcommands.memo import build_memo_parser
 from hermes_cli.subcommands.people import build_people_parser
 from hermes_cli.subcommands.quark import build_quark_parser
 from hermes_cli.subcommands.theory import build_theory_parser
+from hermes_cli.subcommands.k import build_k_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -13204,6 +13205,19 @@ def cmd_theory(args):
     return _run(args)
 
 
+def cmd_k(args):
+    """``hermes k`` — K-domain correlation compute + show (ADR-V6-056 / ADR-V6-044).
+
+    Thin delegate to ``hermes_cli.k_cmd``; the closed loop lives in
+    ``plugins.memory.ptg.k_correlation.compute_k_correlations`` (R9
+    feeling_events → P(neg|entity) lift → K_Correlation edges, F6 sample-gated,
+    zero LLM). Reads feeling_events/entities, writes only the relations graph.
+    """
+    from hermes_cli.k_cmd import cmd_k as _run
+
+    return _run(args)
+
+
 def cmd_skills(args):
     # Route 'config' action to skills_config module
     if getattr(args, "skills_action", None) == "config":
@@ -15038,6 +15052,12 @@ def main():
     # PC/FR derivation + persist — ADR-V6-051 / B3.
     # =========================================================================
     build_theory_parser(subparsers, cmd_theory=cmd_theory)
+
+    # =========================================================================
+    # k command  (parser built in hermes_cli/subcommands/k.py)
+    # K-domain correlation compute + show — ADR-V6-056 / ADR-V6-044.
+    # =========================================================================
+    build_k_parser(subparsers, cmd_k=cmd_k)
 
     # =========================================================================
     # claw command  (parser built in hermes_cli/subcommands/claw.py)
