@@ -910,6 +910,61 @@ class PTGStore:
             "schema_version": row["schema_version"],
         }
 
+    def theory_snapshot(
+        self, user_id: str, period_key: str,
+    ) -> Dict[str, Any]:
+        """Read the user's PC/FR theory derivations for one period (ADR-V6-051 B3).
+
+        The consumer-side read that makes the honest-degradation contract
+        (ADR-V6-040 D4 / ADR-V6-050) **observable**: without it, theory writes
+        scores + ``degraded`` flags that nothing renders — a "做了没发" fake-green.
+        Returns ``{found, period_key, pc: [...], fr: [...]}`` where each entry is
+        the parsed TheoryDerivation
+        ``{name, score, rationale, basis, degraded, confidence}``.
+
+        ``found`` is False when no theory rows exist for the period (cold start /
+        not yet derived) — the caller renders an honest empty state, NEVER a
+        fabricated "平稳". Respects soft-delete. Never raises (C7).
+
+        Theory rows are keyed ``period_key = "{date}|{name}"`` under
+        aggregation_type ``constraint_state`` (PC) / ``fr_snapshot`` (FR)
+        (ADR-V6-050), so this scopes by ``period_key LIKE '{date}|%'`` on those
+        two types. ``period_key`` is the bare date (no ``|name``); the caller
+        (CLI handler) computes any timezone default — the store stays tz-free.
+        """
+        out: Dict[str, Any] = {"found": False, "period_key": period_key,
+                               "pc": [], "fr": []}
+        try:
+            with self._lock:
+                rows = self._conn.execute(
+                    """SELECT aggregation_type, result_data, confidence, deleted_at
+                       FROM insight_aggregation
+                       WHERE user_id = ?
+                         AND aggregation_type IN ('constraint_state','fr_snapshot')
+                         AND period_key LIKE ?""",
+                    (user_id, f"{period_key}|%"),
+                ).fetchall()
+        except Exception as exc:  # noqa: BLE001 — read never raises (C7)
+            logger.warning("theory_snapshot failed (%s/%s): %s",
+                           user_id, period_key, exc)
+            return out
+        for r in rows:
+            if r["deleted_at"] is not None:
+                continue
+            data = _safe_json(r["result_data"], {})
+            if not isinstance(data, dict):
+                continue
+            entry = {
+                "name": data.get("name", ""), "score": float(data.get("score") or 0.0),
+                "rationale": data.get("rationale", ""), "basis": data.get("basis", ""),
+                "degraded": bool(data.get("degraded", False)),
+                "confidence": r["confidence"],
+            }
+            (out["pc"] if r["aggregation_type"] == "constraint_state"
+             else out["fr"]).append(entry)
+        out["found"] = bool(out["pc"] or out["fr"])
+        return out
+
     def founder_user_id(self) -> Optional[str]:
         """Read the persisted founder user_id from ``ptg_meta``, or None.
 

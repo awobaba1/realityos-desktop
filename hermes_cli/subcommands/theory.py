@@ -45,4 +45,13 @@ def build_theory_parser(subparsers, *, cmd_theory: Callable) -> None:
         "--period-key", default=None,
         help="Override the period key (defaults to today's Beijing date)")
 
+    show = theory_sub.add_parser(
+        "show", help="Show the derived PC/FR for a period (honest degradation)")
+    show.add_argument(
+        "--user-id", default=None,
+        help="Override the founder user id (defaults to the resolved founder)")
+    show.add_argument(
+        "--period-key", default=None,
+        help="Override the period key (defaults to today's Beijing date)")
+
     theory_parser.set_defaults(func=cmd_theory)

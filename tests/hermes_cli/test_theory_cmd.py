@@ -86,3 +86,49 @@ def test_theory_no_action_prints_usage(temp_store, capsys):
     rc = theory_cmd.cmd_theory(SimpleNamespace(theory_command=None))
     assert rc == 0
     assert "theory derive" in capsys.readouterr().out
+
+
+# ── theory show (the B3 "UI" consumer — honest degradation render) ─────────
+
+
+def _seed_theory(store, *, agg_type, name, score, degraded, basis="x", period="2026-07-20"):
+    store.upsert_insight(
+        user_id="u1", aggregation_type=agg_type,
+        period_key=f"{period}|{name}", period_start=period, period_end=period,
+        input_data="{}", result_data=__import__("json").dumps(
+            {"kind": "PC" if agg_type == "constraint_state" else "FR",
+             "name": name, "score": score, "rationale": "r",
+             "basis": basis, "degraded": degraded}),
+        confidence=0.25 if degraded else 0.5,
+        data_sufficiency="partial" if degraded else "sufficient",
+        generated_by="manual", schema_version="v1", expires_at="2026-07-21")
+
+
+def test_theory_show_renders_degradation_honestly(temp_store, capsys):
+    """Iron rule: a degraded dim renders as 数据不足 + basis, NOT its 0.0 score."""
+    _seed_theory(temp_store, agg_type="constraint_state", name="Time",
+                 score=0.66, degraded=False, basis="事件时间戳近似")
+    _seed_theory(temp_store, agg_type="constraint_state", name="Energy",
+                 score=0.0, degraded=True, basis="需 R1 fatigue+R10 sleep")
+    rc = theory_cmd.cmd_theory(SimpleNamespace(
+        theory_command="show", user_id=None, period_key="2026-07-20"))
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Non-degraded dim shows its score.
+    assert "Time：0.66" in out
+    # Degraded dim shows 「数据不足/降级」+ basis, NOT the 0.0 score.
+    assert "Energy：数据不足/降级" in out
+    assert "需 R1 fatigue+R10 sleep" in out
+    assert "Energy：0.00" not in out  # the forced 0.0 must NOT read as a value
+    assert "降级 1" in out
+
+
+def test_theory_show_empty_state_not_pingwen(temp_store, capsys):
+    """No rows ⇒ honest empty state, NEVER a fabricated 「平稳」."""
+    rc = theory_cmd.cmd_theory(SimpleNamespace(
+        theory_command="show", user_id=None, period_key="2026-07-20"))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "尚无推导" in out
+    assert "平稳" not in out
+

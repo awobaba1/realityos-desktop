@@ -217,11 +217,6 @@ class TestLayering:
     def test_no_insights_dependency_at_import(self):
         """Layering iron rule: theory scheduling must not pull insights."""
         import plugins.realityos_theory.scheduling as sch  # noqa: F401
-        pulled = [m for m in sys.modules if "realityos_insights" in m
-                  and "realityos_theory" not in m]
-        # Filter to only those pulled AFTER scheduling loaded — simpler: insights
-        # may already be imported by the test session, so assert scheduling's own
-        # declared imports exclude it.
         import ast
         import inspect
         tree = ast.parse(inspect.getsource(sch))
@@ -234,3 +229,66 @@ class TestLayering:
                     imported.add(n.name)
         bad = [m for m in imported if "realityos_insights" in m]
         assert not bad, f"scheduling imports insights (upward edge): {bad}"
+
+
+# ===========================================================================
+# theory_snapshot — the consumer-side read (the B3 "UI")
+# ===========================================================================
+
+def _seed_theory_row(store, *, agg_type, name, score, degraded, basis="x", period=PERIOD):
+    store.upsert_insight(
+        user_id=USER, aggregation_type=agg_type,
+        period_key=f"{period}|{name}", period_start=period, period_end=period,
+        input_data="{}", result_data=json.dumps(
+            {"kind": "PC" if agg_type == "constraint_state" else "FR",
+             "name": name, "score": score, "rationale": "r",
+             "basis": basis, "degraded": degraded}, ensure_ascii=False),
+        confidence=0.25 if degraded else 0.5,
+        data_sufficiency="partial" if degraded else "sufficient",
+        generated_by="manual", schema_version="v1", expires_at="2026-07-21")
+
+
+class TestTheorySnapshot:
+    def test_empty_when_nothing_derived(self, store):
+        snap = store.theory_snapshot(USER, PERIOD)
+        assert snap["found"] is False
+        assert snap["pc"] == [] and snap["fr"] == []
+
+    def test_reads_pc_and_fr(self, store):
+        _seed_theory_row(store, agg_type="constraint_state", name="Time",
+                         score=0.6, degraded=False)
+        _seed_theory_row(store, agg_type="fr_snapshot", name="Career",
+                         score=0.5, degraded=False)
+        snap = store.theory_snapshot(USER, PERIOD)
+        assert snap["found"] is True
+        assert len(snap["pc"]) == 1 and snap["pc"][0]["name"] == "Time"
+        assert len(snap["fr"]) == 1 and snap["fr"][0]["name"] == "Career"
+
+    def test_degraded_flag_preserved(self, store):
+        """The honest-degradation flag MUST round-trip through the read."""
+        _seed_theory_row(store, agg_type="constraint_state", name="Energy",
+                         score=0.0, degraded=True, basis="需音频链路")
+        snap = store.theory_snapshot(USER, PERIOD)
+        e = snap["pc"][0]
+        assert e["degraded"] is True
+        assert e["score"] == 0.0
+        assert e["basis"] == "需音频链路"
+
+    def test_period_scoped(self, store):
+        _seed_theory_row(store, agg_type="constraint_state", name="Time",
+                         score=0.6, degraded=False, period="2026-07-19")
+        _seed_theory_row(store, agg_type="constraint_state", name="Emotion",
+                         score=0.7, degraded=False, period=PERIOD)
+        snap = store.theory_snapshot(USER, PERIOD)
+        assert {e["name"] for e in snap["pc"]} == {"Emotion"}  # only PERIOD
+
+    def test_soft_deleted_excluded(self, store):
+        _seed_theory_row(store, agg_type="constraint_state", name="Time",
+                         score=0.6, degraded=False)
+        store._conn.execute(
+            "UPDATE insight_aggregation SET deleted_at=? "
+            "WHERE user_id=? AND period_key=?",
+            ("2026-07-20", USER, f"{PERIOD}|Time"))
+        store._conn.commit()
+        assert store.theory_snapshot(USER, PERIOD)["found"] is False  # C2
+
