@@ -709,6 +709,22 @@ class PTGStore:
         except Exception as exc:  # noqa: BLE001 — observation surface (C7)
             logger.warning("feedback insert failed (%s/%s): %s",
                            target_type, target_id, exc)
+            # ADR-V6-066 D3: best-effort DLQ. The except is OUTSIDE the
+            # ``with self._lock`` block (method-level try), so re-acquiring the
+            # lock for insert_dlq cannot deadlock. Best-effort: if _conn itself
+            # is the failure (connection-level), this DLQ also fails → warn-only
+            # (already above). For non-connection failures (schema/SQL logic),
+            # _conn is still usable and the DLQ row lands. Founder calibration
+            # signal (ADR-V6-028 §11.4) must not silently evaporate (C7).
+            try:
+                self.insert_dlq(
+                    user_id=user_id, source="store.insert_feedback",
+                    error_type="feedback_insert_failed",
+                    error_msg=f"{type(exc).__name__}: {exc}",
+                    original_data={"target_type": target_type,
+                                   "target_id": target_id, "rating": rating})
+            except Exception:  # noqa: BLE001 — best-effort (store may be unhealthy)
+                logger.warning("insert_feedback DLQ write also failed: %s", exc)
             return ""
 
     # Atom type → event-table row that holds its relation_confidence. The four
@@ -908,8 +924,14 @@ class PTGStore:
                 ).fetchone()
             if row is not None:
                 return row["id"], row["task_description"] or ""
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001 — fallback to substring match (C7)
+            # ADR-V6-066 D5: this is a legitimate query fallback (exact-id lookup
+            # failed → fall through to substring match), NOT data loss. A bare
+            # ``except: pass`` was fully silent (no DEBUG log even); surface it
+            # at DEBUG so a recurring lookup failure is diagnosable. DLQ is NOT
+            # warranted here (no user data was being written).
+            logger.debug("resolve_task_ref exact-id lookup failed (ref=%s): %s",
+                         ref, exc)
         # 3) unique substring over OPEN tasks (don't auto-resolve closed rows)
         hits = [r for r in open_rows
                 if ref.lower() in (r.get("task_description") or "").lower()]
@@ -1236,6 +1258,18 @@ class PTGStore:
                 )
         except Exception as exc:  # noqa: BLE001 — observer surface (C7)
             logger.warning("tool_event insert failed (tool=%s): %s", tool_name, exc)
+            # ADR-V6-066 D4: best-effort DLQ (same pattern as insert_feedback
+            # D3 — except is outside the lock; non-connection failures still
+            # land a DLQ row). §9#4 操作电脑 capture sink must not silently
+            # evaporate (C7).
+            try:
+                self.insert_dlq(
+                    user_id=user_id, source="store.insert_tool_event",
+                    error_type="tool_event_insert_failed",
+                    error_msg=f"{type(exc).__name__}: {exc}",
+                    original_data={"tool_name": tool_name, "session_id": session_id})
+            except Exception:  # noqa: BLE001 — best-effort (store may be unhealthy)
+                logger.warning("insert_tool_event DLQ write also failed: %s", exc)
         return event_id
 
     def recent_tool_events(

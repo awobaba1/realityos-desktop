@@ -64,6 +64,20 @@ def re_extract_memo(
             memo_id=memo_id, source_text=corrected_text, input_mode="text")
     except Exception as exc:  # noqa: BLE001 — atomize itself is C7, but be safe
         logger.warning("re_extract_memo atomize failed (%s): %s", memo_id, exc)
+        # ADR-V6-066 D2: mirror provider._spawn_atomize — an UNCAUGHT atomize
+        # exception is C7-visible. atomize's internal expected failures already
+        # DLQ themselves; this is the outer backstop for a bug that escapes
+        # them. Fail-safe (C7): DLQ write itself must not crash correction.
+        try:
+            store.insert_dlq(
+                user_id=user_id,
+                source="correction.re_extract_memo",
+                error_type="atomize_uncaught",
+                error_msg=f"{type(exc).__name__}: {exc}",
+                original_data={"memo_id": memo_id},
+            )
+        except Exception:  # noqa: BLE001 — best-effort DLQ (C7)
+            logger.warning("re_extract_memo DLQ write also failed (%s): %s", memo_id, exc)
         return {"ok": False, "status": "atomize_error", "memo_id": memo_id,
                 "version": corr.get("version"), "written": 0, "retired_old": 0,
                 "invalidated": 0, "message": "重新提取失败，旧原子保留，稍后再试。"}

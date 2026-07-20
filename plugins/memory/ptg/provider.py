@@ -345,6 +345,20 @@ class PTGProvider(MemoryProvider):
             )
         except Exception as exc:  # noqa: BLE001 — capture must never break the loop
             logger.warning("PTG sync_turn capture failed: %s", exc)
+            # ADR-V6-066 D1: memo §0.6 capture is a规范 capture surface —
+            # _spawn_atomize already DLQs its uncaught path; the capture path
+            # must too (C7). Fail-safe: if the DLQ write itself raises (DB
+            # locked / shutting down), warn-only — the loop still survives.
+            try:
+                self._store.insert_dlq(
+                    user_id=self._user_id,
+                    source="ptg.sync_turn",
+                    error_type="sync_turn_capture_failed",
+                    error_msg=f"{type(exc).__name__}: {exc}",
+                    original_data={"summary": (summary or "")[:200]},
+                )
+            except Exception:  # noqa: BLE001 — last-line DLQ must not crash observer
+                logger.warning("PTG sync_turn DLQ write also failed: %s", exc)
             return
         # G1 (ADR-V6-043 / F2): observe the answer's grounding — did the agent
         # cite the chunks it was given, or assert the user's past ungrounded?
