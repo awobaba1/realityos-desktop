@@ -116,10 +116,19 @@ def _expiry(period_key: str) -> str:
 
 
 def register(*_args, **_kwargs) -> None:
-    """Plugin registration no-op (mirrors realityos_insights/quark/sovereignty).
+    """Register the theory plugin + start the startup-lazy derivation scheduler.
 
-    The service is invoked explicitly by the scheduled job / CLI (B3);
-    registration only logs discovery so a misconfigured plugin never silently
-    appears "live" (反假绿).
+    B3 (ADR-V6-051): wires the startup-lazy scheduler (mirrors insights,
+    ADR-V6-019). Once per process, opt-out; the daemon thread opens the shared
+    store, waits for the founder, and re-derives today's PC/FR skeletons when
+    missing/stale-prompt. Fail-open throughout (C7); disabled under pytest +
+    ``REALITYOS_THEORY_AUTOSCHED=0`` so a misconfigured plugin never silently
+    burns an LLM call (反假绿).
     """
-    logger.debug("realityos_theory registered (explicit invocation only)")
+    from plugins.realityos_theory.scheduling import (
+        _scheduler_should_start, start_scheduler_if_due)
+    started = start_scheduler_if_due(enabled=_scheduler_should_start())
+    logger.debug(
+        "realityos_theory registered (TheoryEngine + derive_and_persist live; "
+        "startup-lazy scheduler %s)",
+        "started" if started else "not started (disabled / already running)")

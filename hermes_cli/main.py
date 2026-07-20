@@ -323,6 +323,8 @@ from hermes_cli.subcommands.calibrate import build_calibrate_parser
 from hermes_cli.subcommands.task import build_task_parser
 from hermes_cli.subcommands.memo import build_memo_parser
 from hermes_cli.subcommands.people import build_people_parser
+from hermes_cli.subcommands.quark import build_quark_parser
+from hermes_cli.subcommands.theory import build_theory_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -12673,6 +12675,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "memo", "migrate", "moa",
         "people",
+        "quark", "theory",
         "journey", "memory-graph", "learning",
         "model", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
         "project", "proxy",
@@ -13173,6 +13176,30 @@ def cmd_people(args):
     in ``PTGStore.list_people`` / ``person_profile``.
     """
     from hermes_cli.people_cmd import cmd_people as _run
+
+    return _run(args)
+
+
+def cmd_quark(args):
+    """``hermes quark`` — quark extraction + aggregation (ADR-V6-051 / B3).
+
+    Thin delegate to ``hermes_cli.quark_cmd``; the closed loop lives in
+    ``plugins.realityos_quark.extract_and_aggregate`` (extract → C5 gate →
+    PRIMARY atom aggregation).
+    """
+    from hermes_cli.quark_cmd import cmd_quark as _run
+
+    return _run(args)
+
+
+def cmd_theory(args):
+    """``hermes theory`` — PC/FR derivation + persist (ADR-V6-051 / B3).
+
+    Thin delegate to ``hermes_cli.theory_cmd``; the closed loop lives in
+    ``plugins.realityos_theory.derive_and_persist`` (gather atoms/relations →
+    derive → honest-degradation stamp → persist insight_aggregation only).
+    """
+    from hermes_cli.theory_cmd import cmd_theory as _run
 
     return _run(args)
 
@@ -14999,6 +15026,18 @@ def main():
     # M-domain people roster + profile — ADR-V6-048 / A5.
     # =========================================================================
     build_people_parser(subparsers, cmd_people=cmd_people)
+
+    # =========================================================================
+    # quark command  (parser built in hermes_cli/subcommands/quark.py)
+    # Quark extraction + aggregation — ADR-V6-051 / B3.
+    # =========================================================================
+    build_quark_parser(subparsers, cmd_quark=cmd_quark)
+
+    # =========================================================================
+    # theory command  (parser built in hermes_cli/subcommands/theory.py)
+    # PC/FR derivation + persist — ADR-V6-051 / B3.
+    # =========================================================================
+    build_theory_parser(subparsers, cmd_theory=cmd_theory)
 
     # =========================================================================
     # claw command  (parser built in hermes_cli/subcommands/claw.py)

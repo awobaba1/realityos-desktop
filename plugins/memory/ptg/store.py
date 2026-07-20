@@ -336,6 +336,40 @@ class PTGStore:
                 "version": new_version, "old_text": effective,
                 "new_text": corrected_text}
 
+    def get_memo(
+        self, user_id: str, memo_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Load a single memo by id (ADR-V6-051 / B3 quark-extract source).
+
+        Returns ``None`` if the memo doesn't exist OR is soft-deleted (C2:
+        deleted rows are invisible to readers). Otherwise ``{id, user_id,
+        source_text, corrected_text, version, effective_text}`` where
+        ``effective_text`` is ``corrected_text or source_text`` — the canonical
+        capture text a quark extractor should tokenize (mirrors the A4
+        effective-text formula in :func:`correct_memo_source_text`). Never
+        raises (C7): a read error → None.
+        """
+        try:
+            with self._lock:
+                row = self._conn.execute(
+                    "SELECT id, user_id, source_text, corrected_text, version, "
+                    "deleted_at FROM memos WHERE id=? AND user_id=?",
+                    (memo_id, user_id),
+                ).fetchone()
+                if row is None or row["deleted_at"] is not None:
+                    return None
+                return {
+                    "id": row["id"], "user_id": row["user_id"],
+                    "source_text": row["source_text"],
+                    "corrected_text": row["corrected_text"],
+                    "version": row["version"],
+                    "effective_text": row["corrected_text"]
+                    or row["source_text"] or "",
+                }
+        except Exception as exc:  # noqa: BLE001 — C7: read never raises
+            logger.warning("get_memo failed (%s/%s): %s", user_id, memo_id, exc)
+            return None
+
     def search_memos_fts(
         self,
         query: str,
