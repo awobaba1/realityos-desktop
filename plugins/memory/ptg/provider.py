@@ -369,7 +369,27 @@ class PTGProvider(MemoryProvider):
                     atomizer.atomize(
                         memo_id=memo_id, source_text=source_text, input_mode="text")
             except Exception as exc:  # noqa: BLE001 — observer surface: never escape
+                # C7 / ADR-V6-011 contract: ANY exception → DLQ + log, never
+                # silent. ``atomize()`` DLQs its *expected* failures internally
+                # (llm_error / json_parse_error / schema_invalid / write_error /
+                # materialize_error / below_confidence_threshold); this outer
+                # wrapper is the backstop for an UNCAUGHT exception (a bug —
+                # e.g. ``IndexError`` on a malformed LLM response) that escapes
+                # those handlers. The DLQ write is itself fail-safe: if it
+                # raises (DB locked / shutting down) the daemon thread still
+                # survives WARN-only — the last line must never crash capture.
                 logger.warning("PTG background atomize failed for memo %s: %s", memo_id, exc)
+                try:
+                    self._store.insert_dlq(
+                        user_id=self._user_id,
+                        source="atomize_thread",
+                        error_type="uncaught_exception",
+                        error_msg=f"{type(exc).__name__}: {exc}",
+                        original_data={"memo_id": memo_id, "source_text": source_text},
+                    )
+                except Exception:  # noqa: BLE001 — last-line DLQ must not crash observer
+                    logger.warning(
+                        "PTG atomize DLQ write also failed for memo %s: %s", memo_id, exc)
 
         t = threading.Thread(target=_run, name="ptg-atomize", daemon=True)
         with self._atomize_threads_lock:

@@ -480,3 +480,78 @@ def test_sync_turn_atomize_then_prefetch_renders_graph_block(provider):
     assert "张三" in out and ("互动" in out or "interacts_with" in out
                               or "述职" in out), (
         f"structured relation not rendered; prefetch=\n{out}")
+
+
+def test_spawn_atomize_uncaught_exception_writes_dlq(tmp_path):
+    """ADR-V6-052 (C4 regression): an UNCAUGHT exception escaping ``atomize()``
+    must land in DLQ — not merely WARN-log. ``atomize()`` DLQs its *expected*
+    failures internally (llm_error / json_parse_error / schema_invalid /
+    write_error / materialize_error / below_confidence_threshold); the
+    ``_spawn_atomize`` outer wrapper is the backstop for a bug that escapes
+    those (e.g. ``IndexError`` on a malformed LLM response with empty
+    ``choices``). C7 / ADR-V6-011 contract: ANY exception → DLQ + log, never
+    silent. Pre-fix the wrapper only WARN-logged, violating that contract.
+    """
+    import time
+
+    p = PTGProvider(config={"db_path": str(tmp_path / "ptg.db"), "atomize": True})
+    p.initialize("s", hermes_home=str(tmp_path), agent_context="primary")
+    assert p._user_id, "founder user_id must resolve at initialize"
+
+    class _BoomAtomizer:
+        # Mimics a bug that escapes atomize()'s internal try/excepts (raises
+        # before any internal DLQ path runs).
+        def atomize(self, *, memo_id, source_text, input_mode="text"):
+            raise IndexError("malformed response: choices empty")
+
+    p._atomizer = _BoomAtomizer()
+
+    before = p._store.count_rows("dlq_messages")
+    p._spawn_atomize(memo_id="m1", source_text="合成文本无 PII")
+    # The raise is immediate; bound the join so a regression can't hang the suite.
+    for t in list(p._atomize_threads):
+        t.join(timeout=5)
+        assert not t.is_alive(), "atomize thread hung after uncaught exception"
+
+    after = p._store.count_rows("dlq_messages")
+    assert after == before + 1, (
+        f"expected exactly 1 new DLQ row for the uncaught exception, "
+        f"got {after - before}")
+    row = p._store._conn.execute(
+        "SELECT source, error_type, error_msg FROM dlq_messages "
+        "ORDER BY created_at DESC LIMIT 1").fetchone()
+    assert row["source"] == "atomize_thread"
+    assert row["error_type"] == "uncaught_exception"
+    assert "IndexError" in row["error_msg"] and "choices empty" in row["error_msg"]
+    p.shutdown()
+
+
+def test_spawn_atomize_dlq_write_failure_does_not_crash(tmp_path, monkeypatch):
+    """ADR-V6-052 (C4): the outer-wrapper DLQ write is itself fail-safe. If
+    ``insert_dlq`` raises (DB locked mid-shutdown / store closed), the daemon
+    thread must WARN-and-survive — the last line of defense can never crash the
+    capture surface. Verified by making ``insert_dlq`` blow up."""
+    p = PTGProvider(config={"db_path": str(tmp_path / "ptg.db"), "atomize": True})
+    p.initialize("s", hermes_home=str(tmp_path), agent_context="primary")
+
+    class _BoomAtomizer:
+        def atomize(self, *, memo_id, source_text, input_mode="text"):
+            raise RuntimeError("uncaught bug")
+
+    p._atomizer = _BoomAtomizer()
+
+    def _boom_dlq(**kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    import sqlite3
+    monkeypatch.setattr(p._store, "insert_dlq", _boom_dlq)
+
+    # Must not raise even though both atomize AND the DLQ write blow up.
+    p._spawn_atomize(memo_id="m2", source_text="合成文本无 PII")
+    for t in list(p._atomize_threads):
+        t.join(timeout=5)
+        assert not t.is_alive(), "atomize thread hung when DLQ write also failed"
+    # No DLQ row could be written (insert_dlq blew up) — the contract here is
+    # "survive + WARN", observed by the thread simply finishing cleanly.
+    p.shutdown()
+
