@@ -85,13 +85,12 @@ def test_marker_appended_to_existing_tool_message():
 
 
 def test_marker_message_inserted_when_missing():
-    # Removed May 2026 — pre-existing assertion mismatch on origin/main
-    # (the dict ordering or marker shape changed without test update).
-    # Deleted wholesale per Teknium's keep-CI-green instruction.
-    pass
-
-
-def _disabled_test_marker_message_inserted_when_missing():
+    # ADR-V6-068: restored as a REAL assertion (was a pass-only stub — a
+    # Teknium keep-CI-green remnant that asserted nothing). The old exact-dict
+    # ``==`` broke because make_tool_result_message now emits extra bookkeeping
+    # keys (``tool_name`` / ``_tool_output_risk``); use subset checks instead so
+    # the test pins the CONTRACT (synthetic marker tool-msg inserted before the
+    # next user turn) without being brittle to ancillary keys.
     marker = AIAgent._TOOL_CALL_ARGUMENTS_CORRUPTION_MARKER
     messages = [
         _assistant_message(_tool_call(arguments='{"path": "/tmp/foo')),
@@ -101,12 +100,13 @@ def _disabled_test_marker_message_inserted_when_missing():
     repaired = AIAgent._sanitize_tool_call_arguments(messages)
 
     assert repaired == 1
-    assert messages[1] == {
-        "role": "tool",
-        "name": "read_file",
-        "tool_call_id": "call_1",
-        "content": marker,
-    }
+    # Inserted synthetic tool message — subset check (the real dict carries
+    # extra ``tool_name`` / ``_tool_output_risk`` keys the old exact-== missed).
+    assert messages[1]["role"] == "tool"
+    assert messages[1]["name"] == "read_file"
+    assert messages[1]["tool_call_id"] == "call_1"
+    assert messages[1]["content"] == marker
+    # The following user turn is preserved (shifted to index 2).
     assert messages[2] == {"role": "user", "content": "next turn"}
 
 

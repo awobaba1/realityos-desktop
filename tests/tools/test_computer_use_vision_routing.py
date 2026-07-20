@@ -6,8 +6,9 @@ should be returned as a multimodal envelope (main model handles vision
 natively) or pre-analysed via the ``auxiliary.vision`` pipeline so the
 main model only sees text.
 
-The companion end-to-end regression for #24015 lives in
-``tests/tools/test_computer_use_capture_routing.py``; this file pins the
+The companion end-to-end regression for the RealityOS capture boundary
+(aux-vision never routes; pixels stripped for non-allowlisted cloud models)
+lives in ``tests/tools/test_computer_use_v6_boundary.py``; this file pins the
 unit contract of the helper in isolation so behaviour does not regress
 silently if the surrounding ``computer_use`` plumbing is refactored.
 """
