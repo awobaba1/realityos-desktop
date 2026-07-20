@@ -1396,18 +1396,99 @@ class PTGStore:
     # C2 soft delete — NEVER hard DELETE on user-data tables
     # ------------------------------------------------------------------
 
-    def soft_delete(self, table: str, row_id: str) -> bool:
-        """Set deleted_at on a row. Refuses append-only logs and unknown tables."""
+    def soft_delete(
+        self, table: str, row_id: str, *,
+        actor: str = "system", reason: str = "", user_id: Optional[str] = None,
+    ) -> bool:
+        """Set ``deleted_at`` on a row AND write a ``deletion_log`` audit entry
+        in one transaction (ADR-V6-045). Refuses append-only logs + unknown
+        tables. ``actor`` ∈ {user, system, cascade, agent}; ``reason`` is free
+        text; ``user_id`` scopes the audit row (defaults to the row's user_id
+        when discoverable, else ''). The row's pre-deletion state is snapshotted
+        into ``deletion_log.snapshot`` for forensic reconstruction.
+
+        Atomicity is the point: if the audit INSERT fails, the deleted_at update
+        rolls back too — a soft-delete without its audit row is the exact silent
+        observability gap deletion_log exists to close (C7). Returns whether a
+        row was newly retired (False if already soft-deleted or absent).
+        """
         if table not in _schema.ALL_TABLES:
             raise ValueError(f"unknown PTG table: {table}")
         if table in _schema.APPEND_ONLY_TABLES:
             raise ValueError(f"{table} is append-only; cannot soft-delete (C2/C7)")
-        with self._lock:
+        uid_col = "id" if table == "realityos_users" else "user_id"
+        with self.transaction():
+            snap_row = self._conn.execute(
+                f"SELECT * FROM {table} WHERE id = ? AND deleted_at IS NULL",
+                (row_id,),
+            ).fetchone()
+            if snap_row is None:
+                return False  # already retired or absent — nothing to audit
+            snapshot = dict(snap_row)
+            uid = user_id or snapshot.get(uid_col) or ""
             cur = self._conn.execute(
                 f"UPDATE {table} SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
                 (_now_iso(), row_id),
             )
-            return cur.rowcount > 0
+            retired = cur.rowcount > 0
+            if retired:
+                self._conn.execute(
+                    "INSERT INTO deletion_log"
+                    "(id, user_id, table_name, record_id, actor, reason, snapshot) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (_uuid(), uid, table, row_id, actor, reason,
+                     json.dumps(snapshot, ensure_ascii=False, default=str)),
+                )
+            return retired
+
+    def log_deletion(
+        self, *, user_id: str, table_name: str, record_id: str,
+        actor: str, reason: str = "", snapshot: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Write a ``deletion_log`` audit row directly (ADR-V6-045).
+
+        For paths that already performed their own bulk soft-delete UPDATE and
+        only need the audit append (e.g. sovereignty ``_soft_delete_window``
+        batches one log row per retired row inside its own transaction). Callers
+        guarantee atomicity with their UPDATE; this is the append half.
+        """
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO deletion_log"
+                "(id, user_id, table_name, record_id, actor, reason, snapshot) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (_uuid(), user_id, table_name, record_id, actor, reason,
+                 json.dumps(snapshot, ensure_ascii=False, default=str)
+                 if snapshot is not None else None),
+            )
+
+    def list_deletion_log(
+        self, user_id: str, *, limit: int = 200, table_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Read the tenant's soft-delete audit trail (newest first), optionally
+        filtered to one table. The R12 sovereignty audit surface — answers
+        "what of mine was retired, by whom, when, and why?" Never raises (C7)."""
+        try:
+            with self._lock:
+                if table_name is not None:
+                    rows = self._conn.execute(
+                        "SELECT id, created_at, table_name, record_id, actor, "
+                        "reason, snapshot FROM deletion_log "
+                        "WHERE user_id = ? AND table_name = ? "
+                        "ORDER BY created_at DESC LIMIT ?",
+                        (user_id, table_name, limit),
+                    ).fetchall()
+                else:
+                    rows = self._conn.execute(
+                        "SELECT id, created_at, table_name, record_id, actor, "
+                        "reason, snapshot FROM deletion_log "
+                        "WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                        (user_id, limit),
+                    ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception:  # noqa: BLE001
+            logger.warning("list_deletion_log read failed:", exc_info=True)
+            return []
 
     def count_rows(self, table: str, *, include_deleted: bool = False) -> int:
         """Row count for tests / diagnostics. Respects soft-delete by default.

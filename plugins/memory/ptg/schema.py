@@ -77,7 +77,7 @@ logger = logging.getLogger(__name__)
 # CREATE TABLE IF NOT EXISTS in apply_schema. C2 user-data table (soft-delete +
 # version). tool_args/result_summary are size-capped at capture time (PIPL §6
 # minimization — a web_fetch body is NOT stored whole).
-SCHEMA_VERSION = 7  # v7 (ADR-V6-044): relations.stale_at for K-correlation
+SCHEMA_VERSION = 8  # v8 (ADR-V6-045): deletion_log audit table; v7 stale_at
                     # invalidation (pure UPDATE, append-only — C2). Additive via
                     # _RECONCILE_COLUMNS so existing v6 DBs heal on reopen.
                     # v6 (ADR-V6-016): atom_kind column on meaning/feeling events
@@ -466,6 +466,27 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_llmlog_created ON llm_call_logs(created_at);
 
+-- ── deletion_log (append-only WORM; ADR-V6-045; C2 soft-delete audit) ──
+-- Every soft-delete (single-row store.soft_delete + sovereignty cascade window)
+-- writes one row here ATOMICALLY with the deleted_at update. C2-exempt: NO
+-- deleted_at (append-only audit; purge_soft_deleted never touches it — purge
+-- iterates C2_USER_TABLES only). Forensic purpose: deleted_at alone records
+-- *when* a row retired; this records *who* (actor), *why* (reason), and *what*
+-- (snapshot JSON of the row before retirement) — the R12 sovereignty audit
+-- substrate and the anti-silent-cascade observability surface (C7).
+CREATE TABLE IF NOT EXISTS deletion_log (
+    id          TEXT PRIMARY KEY,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    user_id     TEXT NOT NULL,
+    table_name  TEXT NOT NULL,
+    record_id   TEXT NOT NULL,
+    actor       TEXT NOT NULL,   -- user | system | cascade | agent
+    reason      TEXT NOT NULL DEFAULT '',
+    snapshot    TEXT             -- JSON of the row before retirement (nullable)
+);
+CREATE INDEX IF NOT EXISTS idx_dellog_user_time ON deletion_log(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_dellog_table     ON deletion_log(table_name);
+
 -- ── ptg_meta (schema version bookkeeping; not a user-data table) ────────
 CREATE TABLE IF NOT EXISTS ptg_meta (
     key   TEXT PRIMARY KEY,
@@ -482,7 +503,7 @@ C2_USER_TABLES = (
     "task_suggestions", "feedback", "insight_aggregation", "quality_metrics",
     "tool_events",
 )
-APPEND_ONLY_TABLES = ("dlq_messages", "llm_call_logs")
+APPEND_ONLY_TABLES = ("dlq_messages", "llm_call_logs", "deletion_log")
 ALL_TABLES = C2_USER_TABLES + APPEND_ONLY_TABLES
 
 # Declarative migration targets: table -> {column: SQLite type}. When the

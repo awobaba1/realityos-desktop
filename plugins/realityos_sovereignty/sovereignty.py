@@ -81,9 +81,13 @@ _USER_ID_COL = {"realityos_users": "id"}
 def _soft_delete_window(
     store, table: str, user_id: str,
     since: Optional[str], until: Optional[str],
+    *, actor: str = "cascade", reason: str = "",
 ) -> int:
     """Set deleted_at on a table's rows for the tenant in an optional time
-    window. Returns the count marked. ``table`` MUST be a C2 user-data table."""
+    window AND write one ``deletion_log`` audit row per retired row, all in one
+    transaction (ADR-V6-045). Returns the count marked. ``table`` MUST be a C2
+    user-data table. Never raises (C7) — a per-table failure logs + returns 0
+    so one table's audit failure cannot block retiring the others."""
     col = _TIME_COL.get(table, "created_at")
     clauses = ["user_id = ?", "deleted_at IS NULL"]
     params: List[Any] = [user_id]
@@ -94,17 +98,44 @@ def _soft_delete_window(
         clauses.append(f"{col} <= ?")
         params.append(until)
     where = " AND ".join(clauses)
-    with store._lock:
-        cur = store._conn.execute(
-            f"UPDATE {table} SET deleted_at = ? WHERE {where}",
-            (_now_iso(), *params),
-        )
-        return int(cur.rowcount)
+    ts = _now_iso()
+    try:
+        with store.transaction():
+            # Snapshot the rows about to retire (forensic; deletion_log.snapshot).
+            snap_rows = store._conn.execute(
+                f"SELECT * FROM {table} WHERE {where}", tuple(params),
+            ).fetchall()
+            if not snap_rows:
+                return 0
+            cur = store._conn.execute(
+                f"UPDATE {table} SET deleted_at = ? WHERE {where}",
+                (ts, *params),
+            )
+            n = int(cur.rowcount or 0)
+            for r in snap_rows:  # one audit row per retired row (append-only)
+                d = dict(r)
+                store._conn.execute(
+                    "INSERT INTO deletion_log"
+                    "(id, user_id, table_name, record_id, actor, reason, snapshot) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (_uuid(), user_id, table, d.get("id"), actor, reason,
+                     json.dumps(d, ensure_ascii=False, default=str)),
+                )
+            return n
+    except Exception as exc:  # noqa: BLE001 — window never breaks the cascade
+        logger.warning("_soft_delete_window(%s) audit+delete tx failed: %s",
+                       table, exc)
+        return 0
 
 
 def _now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
+
+
+def _uuid() -> str:
+    import uuid as _uuid_mod
+    return str(_uuid_mod.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -134,10 +165,14 @@ def cascade_soft_delete(
     if mode not in (MODE_A, MODE_B):
         raise ValueError(f"unknown sovereignty mode: {mode!r} (use 'A' or 'B')")
     tables = _MODE_A_TABLES if mode == MODE_A else _MODE_B_TABLES
+    label = "space_reclaim" if mode == MODE_A else "total_forgetting"
+    audit_reason = f"sovereignty §6.2 mode {mode} ({label})"
     result: Dict[str, int] = {}
     try:
         for t in tables:
-            n = _soft_delete_window(store, t, user_id, since, until)
+            n = _soft_delete_window(
+                store, t, user_id, since, until,
+                actor="cascade", reason=audit_reason)
             if n:
                 result[t] = n
     except Exception as exc:  # noqa: BLE001 — sovereignty never breaks the caller
