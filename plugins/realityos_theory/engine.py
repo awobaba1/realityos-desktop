@@ -216,6 +216,11 @@ class TheoryEngineImpl:
                     basis=basis, degraded=degraded))
             except Exception as exc:  # noqa: BLE001 — C5 per-row isolation
                 logger.warning("theory PC %s build failed: %s", dim, exc)
+                # C7 / ADR-V6-057: per-row build failure → DLQ, not warn-only.
+                # Extends the LLM-call + C5 DLQ paths (above) to per-row isolation.
+                self._safe_dlq(
+                    f"{ENGINE}_pc_build_failed", f"{type(exc).__name__}: {exc}",
+                    {"kind": "PC", "dim": dim, "entry": entry})
         # FR → fr_snapshot (all LLM-approx by design; not "degraded" — basis notes approx)
         for dim in FR_DIMENSIONS:
             entry = fr_raw.get(dim) if isinstance(fr_raw, dict) else None
@@ -228,6 +233,10 @@ class TheoryEngineImpl:
                     degraded=False))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("theory FR %s build failed: %s", dim, exc)
+                # C7 / ADR-V6-057: per-row build failure → DLQ, not warn-only.
+                self._safe_dlq(
+                    f"{ENGINE}_fr_build_failed", f"{type(exc).__name__}: {exc}",
+                    {"kind": "FR", "dim": dim, "entry": entry})
         return out
 
     # -- C6/C7 helpers ---------------------------------------------------

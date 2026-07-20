@@ -134,6 +134,39 @@ class TestEngine:
         ).fetchone()
         assert log["success"] == 1 and log["schema_valid"] == 1
 
+    def test_per_row_build_failure_writes_dlq(self, store, monkeypatch):
+        """C7 / ADR-V6-057: per-row TheoryDerivation build failure → DLQ.
+
+        Before ADR-V6-057, PC/FR per-row failures only ``logger.warning``-ed
+        (the LLM-call + C5 paths above them DID DLQ — inconsistent, the A2 P1
+        gap). This pins the closed C7 contract: any per-row exception → DLQ +
+        log, never silent. Extends ADR-V6-052's per-row theme to the theory row.
+        """
+        from plugins.realityos_theory import engine as engine_mod
+        eng = TheoryEngineImpl(store, caller=lambda **kw: _resp(_full_llm_output()))
+        real = engine_mod.TheoryDerivation
+
+        def boom(*a, **kw):
+            # Fail one PC dim + one FR dim to cover both per-row paths.
+            if (kw.get("kind"), kw.get("name")) in (("PC", "Energy"),
+                                                     ("FR", "Career")):
+                raise ValueError("bad score")
+            return real(*a, **kw)
+
+        monkeypatch.setattr(engine_mod, "TheoryDerivation", boom)
+        out = eng.derive(USER, [], [])
+        # Per-row isolation: the 10 unaffected dims still built; 2 skipped.
+        assert len(out) == len(PC_CONSTRAINTS) + len(FR_DIMENSIONS) - 2
+        assert ("PC", "Energy") not in {(d.kind, d.name) for d in out}
+        assert ("FR", "Career") not in {(d.kind, d.name) for d in out}
+        # Both failed rows → DLQ with their per-row error_type (C7).
+        assert store._conn.execute(
+            "SELECT COUNT(*) FROM dlq_messages WHERE error_type='theory_pc_build_failed'"
+        ).fetchone()[0] == 1
+        assert store._conn.execute(
+            "SELECT COUNT(*) FROM dlq_messages WHERE error_type='theory_fr_build_failed'"
+        ).fetchone()[0] == 1
+
 
 # ===========================================================================
 # Closed loop persist
