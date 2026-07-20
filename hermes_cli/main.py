@@ -329,6 +329,7 @@ from hermes_cli.subcommands.k import build_k_parser
 from hermes_cli.subcommands.citation import build_citation_parser
 from hermes_cli.subcommands.dlq import build_dlq_parser
 from hermes_cli.subcommands.purge import build_purge_parser
+from hermes_cli.subcommands.trail import build_trail_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -12679,6 +12680,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "gui", "desktop", "k", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "memo", "migrate", "moa",
         "people", "purge",
+        "trail",
         "quark", "theory",
         "journey", "memory-graph", "learning",
         "model", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
@@ -13260,6 +13262,21 @@ def cmd_purge(args):
     DRY-RUN DEFAULT; --confirm executes the single C2 hard-DELETE exception.
     """
     from hermes_cli.purge_cmd import cmd_purge as _run
+
+    return _run(args)
+
+
+def cmd_trail(args):
+    """``hermes trail`` — observation-triplet read surface (ADR-V6-070).
+
+    Thin delegate to ``hermes_cli.trail_cmd``; the consumer that closes 做了没发
+    (ADR-V6-037) for three write-only-no-consumer tables: deletion_log
+    (ADR-V6-045), tool_events, quality_metrics (ADR-V6-028). Until this CLI all
+    three had real producers + an ADR-added read API + tests, but zero CLI/API/
+    UI consumer — the most-fatal fake-green class (same disease ADR-V6-063 cured
+    for citation counters, ADR-V6-065 for dlq_messages). Read-only (架构 §4.7).
+    """
+    from hermes_cli.trail_cmd import cmd_trail as _run
 
     return _run(args)
 
@@ -15107,6 +15124,7 @@ def main():
     build_citation_parser(subparsers, cmd_citation=cmd_citation)
     build_dlq_parser(subparsers, cmd_dlq=cmd_dlq)
     build_purge_parser(subparsers, cmd_purge=cmd_purge)
+    build_trail_parser(subparsers, cmd_trail=cmd_trail)
 
     # =========================================================================
     # claw command  (parser built in hermes_cli/subcommands/claw.py)
