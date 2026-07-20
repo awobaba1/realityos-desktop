@@ -123,6 +123,55 @@ def _format_extra_metadata_lines(extra: Dict[str, Any]) -> list[str]:
     return lines
 
 
+# High-risk skill indicators (ADR-V6-058). Skills carrying these tags (or with
+# these names) are dual-use security/red-team tooling (jailbreak, safety-bypass,
+# weight-tampering...). They get an EXTRA strong bilingual risk warning + an
+# explicit confirm at install time, regardless of source (official or third-
+# party) — so a high-risk official skill like ``godmode`` is never installed
+# behind the benign "Official Skill" panel.
+_HIGH_RISK_SKILL_TAGS = frozenset({
+    "jailbreak", "red-teaming", "redteam", "safety-bypass",
+    "uncensoring", "uncensored", "prompt-injection", "weight-tampering",
+})
+_HIGH_RISK_SKILL_NAMES = frozenset({"godmode", "obliteratus"})
+
+
+def _collect_skill_tags(meta, extra_metadata: Dict[str, Any], bundle_name: str) -> set[str]:
+    """Gather every tag-like signal from meta, bundle metadata, and the name.
+
+    Belt-and-suspenders: tags may land in ``meta.tags``, in the nested
+    ``metadata.hermes.tags`` block (carried via ``extra_metadata``), as a flat
+    ``tags`` list in extra_metadata, or be implied by the skill name. Normalize
+    all into one lowercase set so the high-risk gate fires regardless of where
+    the upstream parser parked the tags.
+    """
+    tags: set[str] = set()
+    for t in getattr(meta, "tags", None) or []:
+        if t:
+            tags.add(str(t).strip().lower())
+    if isinstance(extra_metadata, dict):
+        hermes_block = extra_metadata.get("hermes")
+        if isinstance(hermes_block, dict):
+            for t in hermes_block.get("tags") or []:
+                if t:
+                    tags.add(str(t).strip().lower())
+        for t in extra_metadata.get("tags") or []:
+            if t:
+                tags.add(str(t).strip().lower())
+    if bundle_name:
+        tags.add(bundle_name.strip().lower())
+    return tags
+
+
+def _high_risk_skill_indicators(
+    meta, extra_metadata: Dict[str, Any], bundle_name: str,
+) -> set[str]:
+    """Return the high-risk tags/names this skill matches (empty = not high-risk)."""
+    return _collect_skill_tags(meta, extra_metadata, bundle_name) & (
+        _HIGH_RISK_SKILL_TAGS | _HIGH_RISK_SKILL_NAMES
+    )
+
+
 def _resolve_source_meta_and_bundle(identifier: str, sources):
     """Resolve metadata and bundle for a specific identifier."""
     meta = None
@@ -688,7 +737,27 @@ def do_install(identifier: str, category: str = "", force: bool = False,
     # skip_confirm bypasses the prompt (needed in TUI mode where input() hangs)
     if not force and not skip_confirm:
         c.print()
-        if bundle.source == "official":
+        # ADR-V6-058: high-risk skills (jailbreak / red-team / safety-bypass)
+        # get a strong bilingual risk warning + explicit confirm, regardless of
+        # source — a high-risk OFFICIAL skill (e.g. godmode) must NOT slip in
+        # behind the benign "Official Skill" panel.
+        _high_risk = _high_risk_skill_indicators(meta, extra_metadata, bundle.name)
+        if _high_risk:
+            c.print(Panel(
+                "[bold red]⚠️  高风险技能 / HIGH-RISK SKILL[/]\n\n"
+                f"该技能标记为越狱/红队/安全绕过类工具（tags: {', '.join(sorted(_high_risk))}）。\n"
+                "This skill is tagged as a jailbreak / red-team / safety-bypass tool.\n\n"
+                "此类技能仅用于对【您拥有或已获明确授权】的模型/系统进行安全研究与红队测试。\n"
+                "This is dual-use security-research tooling — use ONLY on models / systems\n"
+                "you own or are explicitly authorized to test.\n\n"
+                "对您不拥有或未获授权的模型/服务使用，可能违反服务条款或当地法律；误用责任自负。\n"
+                "Using it on models / services you do not own or are not authorized to test may\n"
+                "violate terms of service or local law. Misuse is solely your responsibility.\n\n"
+                f"Files will be at: [cyan]{display_hermes_home()}/skills/{category + '/' if category else ''}{bundle.name}/[/]",
+                title="⚠️  高风险技能确认 / High-Risk Skill Confirmation",
+                border_style="red",
+            ))
+        elif bundle.source == "official":
             c.print(Panel(
                 "[bold bright_cyan]This is an official optional skill maintained by Nous Research.[/]\n\n"
                 "It ships with hermes-agent but is not activated by default.\n"

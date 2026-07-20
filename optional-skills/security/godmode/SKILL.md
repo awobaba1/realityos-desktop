@@ -17,6 +17,14 @@ Bypass safety filters on API-served LLMs using techniques from [G0DM0D3](https:/
 
 **Key difference from OBLITERATUS:** OBLITERATUS modifies model weights permanently (requires open-weight models + GPU). This skill operates at the prompt/API level — works on any model accessible via API, including closed-source models (GPT, Claude, Gemini, Grok).
 
+## ⚠️ Risk Warning / 风险提示 (ADR-V6-058)
+
+**EN — This is dual-use security-research tooling.** Use ONLY on models / systems you own or are explicitly authorized to test (your own deployments, sanctioned red-team engagements, CTF / research with a clear scope). Using it against models / services you do not own or are not authorized to test may violate the provider's terms of service and/or local law. You are solely responsible for misuse.
+
+**中文 — 本技能为双用途安全研究工具。** 仅可用于【您拥有或已获明确授权】的模型/系统（自有部署、授权的红队评估、范围明确的 CTF/研究）。对您不拥有或未获授权的模型/服务使用，可能违反服务条款或当地法律，误用责任自负。
+
+This skill is flagged high-risk at install time (`hermes skills install` shows a red confirmation panel). It does not exfiltrate data or persist beyond the configured prompt/API surface, but it is designed to defeat safety filters — treat its outputs and the targeted models' responses accordingly.
+
 ## When to Use This Skill
 
 Trigger when the user:
