@@ -352,8 +352,15 @@ def test_checkpoint_manager_git_hides_windows(monkeypatch):
 
     ok, _, _ = checkpoint_manager._run_git(["status", "--short"], Path("C:/store"), ".")
     assert ok
-    assert captured[0][0][0] == "git"
-    assert captured[0][1]["creationflags"] == _CREATE_NO_WINDOW
+    # Filter to the call under test (argv contains ``status --short``). These
+    # tests patch ``<module>.subprocess.run`` — the shared ``subprocess``
+    # singleton — process-wide, so the update-check daemon's stray ``git ...
+    # origin`` spawn can land in ``captured`` ahead of this call and trip a bare
+    # ``KeyError: 'creationflags'``. Sibling tests were hardened in 0ea318a7d
+    # via ``_spawns``; this one was missed (C4: defect → regression guard).
+    git_calls = _spawns(captured, "status", "--short")
+    assert len(git_calls) == 1, captured
+    assert git_calls[0][1].get("creationflags") == _CREATE_NO_WINDOW
 
 
 def test_skills_hub_gh_token_hides_windows(monkeypatch):
