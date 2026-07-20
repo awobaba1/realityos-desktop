@@ -322,6 +322,7 @@ from hermes_cli.subcommands.claw import build_claw_parser
 from hermes_cli.subcommands.calibrate import build_calibrate_parser
 from hermes_cli.subcommands.task import build_task_parser
 from hermes_cli.subcommands.memo import build_memo_parser
+from hermes_cli.subcommands.people import build_people_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -12671,6 +12672,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "config", "console", "cron", "curator", "dashboard", "serve", "debug", "doctor",
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "memo", "migrate", "moa",
+        "people",
         "journey", "memory-graph", "learning",
         "model", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
         "project", "proxy",
@@ -13160,6 +13162,17 @@ def cmd_memo(args):
     re-extract → retire OLD only on success → invalidate insights).
     """
     from hermes_cli.memo_cmd import cmd_memo as _run
+
+    return _run(args)
+
+
+def cmd_people(args):
+    """``hermes people`` — M-domain people roster + profile (ADR-V6-048 / A5).
+
+    Thin delegate to ``hermes_cli.people_cmd``; the pure-SQL aggregation lives
+    in ``PTGStore.list_people`` / ``person_profile``.
+    """
+    from hermes_cli.people_cmd import cmd_people as _run
 
     return _run(args)
 
@@ -14980,6 +14993,12 @@ def main():
     # Source-text correction + re-extraction — ADR-V6-047 / A4.
     # =========================================================================
     build_memo_parser(subparsers, cmd_memo=cmd_memo)
+
+    # =========================================================================
+    # people command  (parser built in hermes_cli/subcommands/people.py)
+    # M-domain people roster + profile — ADR-V6-048 / A5.
+    # =========================================================================
+    build_people_parser(subparsers, cmd_people=cmd_people)
 
     # =========================================================================
     # claw command  (parser built in hermes_cli/subcommands/claw.py)

@@ -1594,6 +1594,175 @@ class PTGStore:
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
+    # M-domain people roster + profile (ADR-V6-048 / A5) — pure SQL, no LLM
+    # ------------------------------------------------------------------
+
+    def list_people(self, user_id: str, *, limit: int = 50) -> List[Dict[str, Any]]:
+        """Person entities (``entity_type='person'``), self-node excluded.
+
+        The M-domain roster for ``hermes people``. Ordered by ``mention_count``
+        DESC then ``last_seen_at`` DESC so the most-relevant people surface
+        first. Pure SQL — no LLM, no inference; the honest read-only view of
+        who the founder has talked about and how often. Respects soft-delete.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT id, entity_name, mention_count, first_seen_at, last_seen_at,
+                          properties
+                   FROM entities
+                   WHERE user_id = ? AND deleted_at IS NULL AND entity_type = 'person'
+                   ORDER BY mention_count DESC, last_seen_at DESC LIMIT ?""",
+                [user_id, limit + 5],
+            ).fetchall()
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            try:
+                props = json.loads(r["properties"] or "{}")
+            except (ValueError, TypeError):
+                props = {}
+            if props.get("is_self"):  # skip the implicit founder "我" node
+                continue
+            out.append({
+                "entity_id": r["id"],
+                "entity_name": r["entity_name"],
+                "mention_count": r["mention_count"],
+                "first_seen_at": r["first_seen_at"],
+                "last_seen_at": r["last_seen_at"],
+                "aliases": list(props.get("aliases") or []),
+            })
+            if len(out) >= limit:
+                break
+        return out
+
+    def person_profile(
+        self, user_id: str, entity_id: str, *, recent_limit: int = 10,
+    ) -> Dict[str, Any]:
+        """Full M-domain aggregation for one person (ADR-V6-048 / A5).
+
+        Pure SQL — no LLM, no synthesis. Gathers five read-only facets so the
+        founder can review ``who this person is to me`` from raw evidence:
+
+        * ``header`` — name, mention_count, first/last seen, aliases, entity_id.
+        * ``interaction_breakdown`` — identity_events counts by
+          (interaction_type, sentiment) + ``total`` interactions.
+        * ``recent_contexts`` — last ``recent_limit`` mention_context strings
+          with timestamp + interaction_type + sentiment.
+        * ``relations`` — graph neighbourhood (reuses ``relations_for_user``).
+        * ``emotions`` — R9 feeling_events whose ``trigger_source.entity``
+          resolves to this person: ``count`` + recent ``triggers``.
+
+        Identity/feeling events are matched to the person by name (canonical
+        + aliases, ``LOWER(TRIM(...))``) because those tables key on raw text,
+        not entity_id. Returns ``{found: False, reason}`` on missing /
+        soft-deleted / non-person. Never raises (C7).
+        """
+        # 1. header (also enforces entity_type='person').
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT id, entity_name, mention_count, first_seen_at, last_seen_at,
+                          properties, entity_type
+                   FROM entities
+                   WHERE id = ? AND user_id = ? AND deleted_at IS NULL""",
+                [entity_id, user_id],
+            ).fetchone()
+        if not row:
+            return {"found": False, "entity_id": entity_id, "reason": "not_found"}
+        if row["entity_type"] != "person":
+            return {"found": False, "entity_id": entity_id,
+                    "reason": f"not_a_person:{row['entity_type']}"}
+        try:
+            props = json.loads(row["properties"] or "{}")
+        except (ValueError, TypeError):
+            props = {}
+        aliases = [str(a).strip() for a in (props.get("aliases") or []) if str(a).strip()]
+        # Name variants for raw-text matching (identity/feeling events).
+        variants = sorted({v for v in [row["entity_name"], *aliases] if v})
+
+        profile: Dict[str, Any] = {
+            "found": True,
+            "entity_id": row["id"],
+            "entity_name": row["entity_name"],
+            "mention_count": row["mention_count"],
+            "first_seen_at": row["first_seen_at"],
+            "last_seen_at": row["last_seen_at"],
+            "aliases": aliases,
+        }
+
+        # 2 + 3. interactions + recent contexts (identity_events by name match).
+        like_ph = ", ".join(["?"] * len(variants)) if variants else "NULL"
+        norm_variants = [v.strip().lower() for v in variants]
+        with self._lock:
+            if norm_variants:
+                brk = self._conn.execute(
+                    f"""SELECT interaction_type, sentiment, COUNT(*) AS n
+                        FROM identity_events
+                        WHERE user_id = ? AND deleted_at IS NULL
+                          AND LOWER(TRIM(person_name)) IN ({like_ph})
+                        GROUP BY interaction_type, sentiment""",
+                    [user_id, *norm_variants],
+                ).fetchall()
+                ctx_rows = self._conn.execute(
+                    f"""SELECT mention_context, timestamp, interaction_type, sentiment
+                        FROM identity_events
+                        WHERE user_id = ? AND deleted_at IS NULL
+                          AND LOWER(TRIM(person_name)) IN ({like_ph})
+                        ORDER BY timestamp DESC LIMIT ?""",
+                    [user_id, *norm_variants, recent_limit],
+                ).fetchall()
+            else:
+                brk, ctx_rows = [], []
+        breakdown: Dict[str, Any] = {"by_type": {}, "by_sentiment": {}, "total": 0}
+        for b in brk:
+            itype = b["interaction_type"] or "unknown"
+            sent = b["sentiment"] or "unknown"
+            breakdown["by_type"][itype] = breakdown["by_type"].get(itype, 0) + b["n"]
+            breakdown["by_sentiment"][sent] = breakdown["by_sentiment"].get(sent, 0) + b["n"]
+            breakdown["total"] += b["n"]
+        profile["interaction_breakdown"] = breakdown
+        profile["recent_contexts"] = [
+            {
+                "context": c["mention_context"],
+                "timestamp": c["timestamp"],
+                "interaction_type": c["interaction_type"],
+                "sentiment": c["sentiment"],
+            }
+            for c in ctx_rows
+        ]
+
+        # 4. relations (reuse the graph neighbourhood query).
+        profile["relations"] = self.relations_for_user(
+            user_id, entity_id=entity_id, limit=20)
+
+        # 5. emotions — R9 atoms whose trigger_source.entity resolves here.
+        # Fetch recent R9 rows for the user and filter by parsed entity (the
+        # trigger_source JSON is small; bounded by the LIMIT window).
+        triggers: List[Dict[str, Any]] = []
+        with self._lock:
+            r9_rows = self._conn.execute(
+                """SELECT trigger_source, timestamp, state_type, intensity
+                   FROM feeling_events
+                   WHERE user_id = ? AND deleted_at IS NULL AND atom_kind = 'R9'
+                   ORDER BY timestamp DESC LIMIT 200""",
+                [user_id],
+            ).fetchall()
+        norm_set = {v.strip().lower() for v in variants}
+        for r9 in r9_rows:
+            try:
+                ts = json.loads(r9["trigger_source"] or "{}")
+            except (ValueError, TypeError):
+                continue
+            ent = str(ts.get("entity") or "").strip().lower()
+            if ent and ent in norm_set:
+                triggers.append({
+                    "timestamp": r9["timestamp"],
+                    "state_type": r9["state_type"],
+                    "intensity": r9["intensity"],
+                    "trigger": ts.get("trigger") or ts.get("situation") or "",
+                })
+        profile["emotions"] = {"count": len(triggers), "triggers": triggers[:recent_limit]}
+        return profile
+
+    # ------------------------------------------------------------------
     # C2 soft delete — NEVER hard DELETE on user-data tables
     # ------------------------------------------------------------------
 
