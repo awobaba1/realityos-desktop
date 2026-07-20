@@ -13,6 +13,8 @@ Reproduction:
 Expected (after fix):
   1. sys.dont_write_bytecode is True in the test process (conftest sets it).
   2. Importing a module does NOT emit a .pyc next to it.
+  3. No .pyc/__pycache__ is TRACKED in git (the durable cross-clone invariant;
+     runtime pyc in a temp CI checkout is ephemeral and gitignored).
 
 Guarded by tests/test_conftest_pyc_defense.py — DO NOT delete without an ADR.
 """
@@ -57,21 +59,37 @@ def test_importing_module_emits_no_pyc(tmp_path):
     )
 
 
-def test_no_stale_pycache_in_source_tree():
-    """F1 environmental guard: the plugins/ source tree under test has no
-    __pycache__ dirs that would let stale bytecode shadow live source.
+def test_no_pycache_committed_to_git():
+    """F1 real invariant: no ``.pyc`` / ``__pycache__`` is TRACKED in git.
 
-    This is a snapshot guard — if a prior undisciplined run littered the tree,
-    this test fails loudly so it gets cleaned (find . -name __pycache__ -prune
-    -exec rm -rf {} +) rather than silently shadowing edits.
+    This is the actual shadow risk — committed bytecode ships to every clone
+    and can be imported instead of edited source, masking a code change that
+    never took effect (C7 silent failure / strategy-02 T-0). The conftest
+    ``sys.dont_write_bytecode`` flag (tested above) prevents the CURRENT
+    process from writing pyc; this guard ensures none was ever COMMITTED.
+
+    CI-stable by design: the earlier ``rglob("__pycache__")`` snapshot variant
+    was a false-alarm factory under pytest-xdist — 8 sibling workers each
+    import ``plugins/`` and write ephemeral ``__pycache__`` into the shared
+    checkout, so the snapshot always found litter that isn't tracked and
+    self-cleans next checkout. Tracking (``git ls-files``) is the durable,
+    cross-clone invariant.
     """
-    root = Path(__file__).resolve().parent.parent / "plugins"
-    if not root.exists():
-        return  # plugins/ absent in this checkout — nothing to guard
-    stale = sorted(p for p in root.rglob("__pycache__"))
-    assert not stale, (
-        "Found __pycache__ dirs under plugins/ — these can shadow live source "
-        f"with stale bytecode (F1 / C7). Clean with: "
-        f"find plugins -name __pycache__ -prune -exec rm -rf {{}} +. "
-        f"Found: {[str(p.relative_to(root.parent)) for p in stale]}"
+    import subprocess
+    repo_root = Path(__file__).resolve().parent.parent
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files"],
+            capture_output=True, text=True, timeout=15, check=True,
+        ).stdout
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return  # not a git checkout / git unavailable — can't enforce; skip
+    tracked = [ln for ln in out.splitlines() if ln]
+    bad = sorted(p for p in tracked
+                 if p.endswith(".pyc") or "/__pycache__/" in p
+                 or p.endswith("__pycache__") or p.startswith("__pycache__/"))
+    assert not bad, (
+        "Tracked .pyc/__pycache__ in git — committed bytecode can shadow live "
+        f"source across every clone (F1 / C7). Remove from git with: "
+        f"git rm -r --cached <paths>. Found: {bad}"
     )
