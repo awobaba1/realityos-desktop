@@ -501,6 +501,126 @@ class PTGStore:
             return dlq_id
 
     # ------------------------------------------------------------------
+    # DLQ read surface — ADR-V6-065 (C7 Phase-Gate backlog observability)
+    # Until these + `hermes dlq`, dlq_messages was write-only-no-consumer
+    # (ADR-V6-037 做了没发); the Phase-Gate 'DLQ backlog < 5/week' KR was
+    # unverifiable. Read-only surfaces never raise (C7).
+    # ------------------------------------------------------------------
+
+    def dlq_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
+        """Read DLQ aggregation (ADR-V6-065). Returns ``{total, unresolved,
+        resolved, by_source, by_error_type}``. Read-only, never raises (C7)."""
+        out: Dict[str, Any] = {
+            "total": 0, "unresolved": 0, "resolved": 0,
+            "by_source": {}, "by_error_type": {},
+        }
+        try:
+            with self._lock:
+                sql = "SELECT resolved, source, error_type FROM dlq_messages"
+                params: list = []
+                if user_id is not None:
+                    sql += " WHERE user_id = ?"
+                    params.append(user_id)
+                rows = self._conn.execute(sql, params).fetchall()
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("dlq_stats read failed: %s", exc)
+            return out
+        for resolved, source, error_type in rows:
+            out["total"] += 1
+            if resolved:
+                out["resolved"] += 1
+            else:
+                out["unresolved"] += 1
+            out["by_source"][source] = out["by_source"].get(source, 0) + 1
+            out["by_error_type"][error_type] = out["by_error_type"].get(error_type, 0) + 1
+        return out
+
+    def dlq_list(
+        self, *, user_id: Optional[str] = None,
+        resolved: Optional[bool] = None, source: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """List DLQ rows newest-first (ADR-V6-065). Filters: user/resolved/
+        source. ``limit`` clamped to [0, 200]. Read-only, never raises (C7)."""
+        limit = max(0, min(int(limit), 200))
+        sql = ("SELECT id, created_at, source, error_type, error_msg, resolved "
+               "FROM dlq_messages")
+        clauses: list = []
+        params: list = []
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if resolved is not None:
+            clauses.append("resolved = ?")
+            params.append(1 if resolved else 0)
+        if source is not None:
+            clauses.append("source = ?")
+            params.append(source)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        try:
+            with self._lock:
+                rows = self._conn.execute(sql, params).fetchall()
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("dlq_list read failed: %s", exc)
+            return []
+        return [
+            {"id": r[0], "created_at": r[1], "source": r[2],
+             "error_type": r[3], "error_msg": r[4], "resolved": bool(r[5])}
+            for r in rows
+        ]
+
+    def dlq_resolve(self, dlq_id: str, *, user_id: Optional[str] = None) -> bool:
+        """Mark one DLQ row resolved=1 (founder ack, ADR-V6-065).
+
+        ``resolved``/``resolved_at`` are status metadata, NOT event content —
+        the UPDATE is allowed under append-only semantics (append-only protects
+        the failure payload; resolution is a new state layer the schema's
+        ``idx_dlq_resolved`` index was designed for, same nature as
+        ``retry_count``). Returns True iff a row was updated. Never raises (C7).
+        """
+        sql = ("UPDATE dlq_messages SET resolved=1, resolved_at=? "
+               "WHERE id=? AND resolved=0")
+        params: list = [_now_iso(), dlq_id]
+        if user_id is not None:
+            sql += " AND user_id=?"
+            params.append(user_id)
+        try:
+            with self._lock:
+                cur = self._conn.execute(sql, params)
+                return cur.rowcount > 0
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("dlq_resolve failed: %s", exc)
+            return False
+
+    def dlq_resolve_all(
+        self, *, user_id: Optional[str] = None, source: Optional[str] = None,
+    ) -> int:
+        """Bulk-resolve unresolved DLQ rows (ADR-V6-065). Returns count
+        updated. Never raises (C7). Status-metadata flip — see dlq_resolve."""
+        clauses = ["resolved=0"]
+        params: list = []
+        if user_id is not None:
+            clauses.append("user_id=?")
+            params.append(user_id)
+        if source is not None:
+            clauses.append("source=?")
+            params.append(source)
+        try:
+            with self._lock:
+                cur = self._conn.execute(
+                    "UPDATE dlq_messages SET resolved=1, resolved_at=? "
+                    "WHERE " + " AND ".join(clauses),
+                    [_now_iso()] + params,
+                )
+                return cur.rowcount
+        except Exception as exc:  # noqa: BLE001 — observation surface (C7)
+            logger.warning("dlq_resolve_all failed: %s", exc)
+            return 0
+
+    # ------------------------------------------------------------------
     # Quality telemetry — §11.2 / §9#8 time-series ground (Phase 1a)
     # ------------------------------------------------------------------
 

@@ -327,6 +327,7 @@ from hermes_cli.subcommands.quark import build_quark_parser
 from hermes_cli.subcommands.theory import build_theory_parser
 from hermes_cli.subcommands.k import build_k_parser
 from hermes_cli.subcommands.citation import build_citation_parser
+from hermes_cli.subcommands.dlq import build_dlq_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -12673,7 +12674,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
     {
         "acp", "auth", "backup", "bundles", "calibrate", "checkpoints", "citation", "claw", "completion",
         "computer-use",
-        "config", "console", "cron", "curator", "dashboard", "serve", "debug", "doctor",
+        "config", "console", "cron", "curator", "dashboard", "serve", "debug", "dlq", "doctor",
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "gui", "desktop", "k", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "memo", "migrate", "moa",
         "people",
@@ -13229,6 +13230,21 @@ def cmd_citation(args):
     was paper-only. Read-only: reads ``ptg_meta``, writes nothing.
     """
     from hermes_cli.citation_cmd import cmd_citation as _run
+
+    return _run(args)
+
+
+def cmd_dlq(args):
+    """``hermes dlq`` — C7 DLQ read/ack surface (ADR-V6-065).
+
+    Thin delegate to ``hermes_cli.dlq_cmd``; reads the dlq_messages backlog
+    every failure path writes under C7 (atomize/quark/theory/insights/provider).
+    Until this CLI, dlq_messages was write-only-no-consumer (做了没发,
+    ADR-V6-037) — the Phase-Gate 'DLQ backlog < 5/week' KR was unverifiable.
+    ``--resolve`` flips the status-metadata resolved flag only (append-only
+    compliant; failure payload never mutated).
+    """
+    from hermes_cli.dlq_cmd import cmd_dlq as _run
 
     return _run(args)
 
@@ -15074,6 +15090,7 @@ def main():
     # =========================================================================
     build_k_parser(subparsers, cmd_k=cmd_k)
     build_citation_parser(subparsers, cmd_citation=cmd_citation)
+    build_dlq_parser(subparsers, cmd_dlq=cmd_dlq)
 
     # =========================================================================
     # claw command  (parser built in hermes_cli/subcommands/claw.py)
