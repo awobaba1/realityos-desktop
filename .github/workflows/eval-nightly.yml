@@ -7,9 +7,10 @@ name: Eval Nightly (recall gate)
 # Triggers: nightly cron + manual workflow_dispatch. NOT a PR gate — run_eval
 # costs real LLM calls, so it is observability, not a per-PR check.
 #
-# 桶D boundary: the lane is DORMANT (exit 0 + ::notice::, NOT green-faking) until
-# the DEEPSEEK_API_KEY Actions secret is added to this repo. The dormancy is
-# logged transparently. Once armed, it runs the recall gate and exits 1 on RED.
+# 桶D boundary: the lane is DORMANT until the DEEPSEEK_API_KEY Actions secret is
+# added. Dormancy emits ::warning:: (ADR-V6-055: 升级自 ::notice:: 更显眼) + a 7-day
+# liveness check (no eval-report artifact in 7d → 黄牌). Exit 0 = dormant, NOT
+# green-faking (skip logged). Once armed, runs recall gate, exits 1 on RED.
 
 on:
   schedule:
@@ -24,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  actions: read  # ADR-V6-055: liveness step 查 7 天 eval-report artifact
 
 concurrency:
   group: eval-nightly-${{ github.ref }}
@@ -63,7 +65,7 @@ jobs:
           set -euo pipefail
           source .venv/bin/activate
           if [ -z "$DEEPSEEK_API_KEY" ]; then
-            echo "::notice::ADR-V6-030 eval lane DORMANT — DEEPSEEK_API_KEY Actions secret not set (桶D). Add it (Settings → Secrets and variables → Actions) to arm the nightly recall gate. Exit 0 = dormant, NOT green-faking (the skip is logged here)."
+            echo "::warning::ADR-V6-030/055 eval lane DORMANT — DEEPSEEK_API_KEY Actions secret 未配置 (桶D). recall gate 理论盾零拦截. armed: gh secret set DEEPSEEK_API_KEY; gh secret set DEEPSEEK_BASE_URL. Exit 0 = dormant, NOT green-faking (skip logged + 7-day liveness step flags)."
             exit 0
           fi
           # Real eval: recall gate. --ci-gate exits 1 on RED (ADR-V6-030).
@@ -79,3 +81,34 @@ jobs:
           path: eval-report.json
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Recall-gate liveness check (ADR-V6-055)
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          # 最近一次完成的 eval-nightly run 是否产了 eval-report artifact？
+          # dormant run 不产 artifact（if-no-files-found: ignore），故无 artifact
+          # = 仍 dormant = recall gate 理论盾。本 step 把"门禁假装存在"升级为可见黄牌。
+          latest=$(gh run list -R "${{ github.repository }}" \
+            --workflow=eval-nightly.yml --status completed --limit 1 \
+            --json databaseId,createdAt --jq '.[0]') || latest=""
+          if [ -z "$latest" ]; then
+            echo "ℹ️ 无历史 eval-nightly run（首次调度或刚启用）"
+            exit 0
+          fi
+          rid=$(echo "$latest" | jq -r '.databaseId')
+          created=$(echo "$latest" | jq -r '.createdAt')
+          cutoff=$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ')
+          if [[ "$created" < "$cutoff" ]]; then
+            echo "::warning::ADR-V6-055 eval-nightly 最近一次 run 在 7 天前（$created），recall gate 长期沉睡（理论盾）。armed: gh secret set DEEPSEEK_API_KEY; gh secret set DEEPSEEK_BASE_URL"
+            exit 0
+          fi
+          n=$(gh api "repos/${{ github.repository }}/actions/runs/${rid}/artifacts" \
+            --jq '[.artifacts[]? | select(.name=="eval-report")] | length' 2>/dev/null) || n=0
+          if [ "${n:-0}" -ge 1 ]; then
+            echo "✓ ADR-V6-055: 最近 eval-nightly run ($created) 有 eval-report artifact，recall gate armed"
+          else
+            echo "::warning::ADR-V6-055 最近 eval-nightly run ($created) 无 eval-report artifact — recall gate DORMANT（理论盾）。armed: gh secret set DEEPSEEK_API_KEY; gh secret set DEEPSEEK_BASE_URL"
+          fi
