@@ -112,6 +112,13 @@ _REASONING_STALE_TIMEOUT_FLOORS: tuple[tuple[str, int], ...] = (
     ("grok-4-fast-reasoning", 300),
     ("grok-4.20-reasoning", 300),
     ("grok-4-fast-non-reasoning", 180),
+    # Zhipu GLM-5.x — thinking models (ADR-093 primary LLM). Measured 60-80s
+    # TTFB during extraction; without a floor entry they hit the 30s extraction
+    # request default and silently DLQ every atomize pass (ADR-V6-076 P0-3,
+    # surfaced by the 10-agent audit).
+    ("glm-5", 240),
+    ("glm-5.1", 240),
+    ("glm-5.2", 240),
 )
 
 

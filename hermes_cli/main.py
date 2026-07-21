@@ -15337,12 +15337,18 @@ def main():
         cmd_chat(args)
         return
 
-    # Execute the command
+    # Execute the command.
+    # ADR-V6-076 P0-1: propagate the handler's return code so CI/cron `&&`
+    # chains see real failure. Previously the return value was discarded and
+    # main() fell through to an implicit ``return None`` → ``sys.exit(None)``
+    # → exit 0 even when the handler returned 1 (the "永远 exit 0 骗 CI"
+    # anti-fake-green defect surfaced by the 10-agent audit).
     if hasattr(args, "func"):
-        args.func(args)
-    else:
-        parser.print_help()
+        return args.func(args) or 0
+    parser.print_help()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    import sys as _sys
+    _sys.exit(main())

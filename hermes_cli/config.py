@@ -1624,7 +1624,11 @@ DEFAULT_CONFIG = {
             "model": "",
             "base_url": "",
             "api_key": "",
-            "timeout": 30,
+            # ADR-V6-076 P0-3: was 30. GLM-5.x thinking TTFB is 60-80s, so the
+            # 30s default silently DLQ'd every atomize pass on the primary
+            # LLM (ADR-093). 180s gives thinking models headroom and pairs
+            # with the glm-5 stale-timeout floor in reasoning_timeouts.py.
+            "timeout": 180,
             "extra_body": {},
             "reasoning_effort": "",
         },

@@ -2556,14 +2556,14 @@ def main():
             add_result = git_result("add", *add_files)
             if add_result.returncode != 0:
                 print(f"  ✗ Failed to stage version files: {add_result.stderr.strip()}")
-                return
+                return 1  # ADR-V6-076 P0-2: abort non-zero, never exit 0 on failure
 
             commit_result = git_result(
                 "commit", "-m", f"chore: bump version to v{new_version} ({calver_date})"
             )
             if commit_result.returncode != 0:
                 print(f"  ✗ Failed to commit version bump: {commit_result.stderr.strip()}")
-                return
+                return 1  # ADR-V6-076 P0-2
             print("  ✓ Committed version bump")
 
         # Create annotated tag
@@ -2573,7 +2573,7 @@ def main():
         )
         if tag_result.returncode != 0:
             print(f"  ✗ Failed to create tag {tag_name}: {tag_result.stderr.strip()}")
-            return
+            return 1  # ADR-V6-076 P0-2
         print(f"  ✓ Created tag {tag_name}")
 
         # Push
@@ -2584,6 +2584,11 @@ def main():
             print(f"  ✗ Failed to push to origin: {push_result.stderr.strip()}")
             print("    Continue manually after fixing access:")
             print("    git push origin HEAD --tags")
+            # ADR-V6-076 P0-2: ABORT — do NOT continue to build_release_artifacts
+            # / gh release create on a dead push. This was the historical
+            # v2026.7.18/19 假绿 root cause: push failure was swallowed and
+            # the script printed "🎉 Release published!" anyway.
+            return 1
 
         # Build semver-named Python artifacts so downstream packagers
         # (e.g. Homebrew) can target them without relying on CalVer tag names.
@@ -2618,6 +2623,7 @@ def main():
             changelog_file.unlink(missing_ok=True)
             print(f"  ✓ GitHub release created: {result.stdout.strip()}")
             print(f"\n  🎉 Release v{new_version} ({tag_name}) published!")
+            return 0  # ADR-V6-076 P0-2: explicit success return code
         else:
             if result is None:
                 print("  ✗ GitHub release skipped: `gh` CLI not found.")
@@ -2630,12 +2636,15 @@ def main():
                 f"--notes-file .release_notes.md {' '.join(str(path) for path in artifacts)}"
             )
             print(f"\n  ✓ Release artifacts prepared for manual publish: v{new_version} ({tag_name})")
+            return 1  # ADR-V6-076 P0-2: release create failed → non-zero exit
     else:
         print(f"\n{'='*60}")
         print("  Dry run complete. To publish, add --publish")
         print("  Example: python scripts/release.py --bump minor --publish")
         print(f"{'='*60}")
+        return 0  # ADR-V6-076 P0-2: explicit success return code (dry run)
 
 
 if __name__ == "__main__":
-    main()
+    import sys as _sys
+    _sys.exit(main())
