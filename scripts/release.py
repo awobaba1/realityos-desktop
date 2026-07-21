@@ -2549,8 +2549,24 @@ def main():
             update_version_files(new_version, calver_date)
             print(f"  ✓ Updated version files to v{new_version} ({calver_date})")
 
+            # ADR-V6-077: regenerate uv.lock so it tracks the new hermes-agent
+            # version. Without this CI `uv sync --locked` fails on the bump
+            # commit (lockfile out of sync) — silent CI red, same class as
+            # ADR-V6-076 P0-2. Abort non-zero if uv lock fails or times out.
+            try:
+                uv_result = subprocess.run(
+                    ["uv", "lock"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=300
+                )
+            except subprocess.TimeoutExpired:
+                print("  ✗ uv lock timed out after 300s — uv.lock not regenerated")
+                return 1
+            if uv_result.returncode != 0:
+                print(f"  ✗ uv lock failed (rc={uv_result.returncode}): {uv_result.stderr.strip()}")
+                return 1
+            print("  ✓ Regenerated uv.lock for new version")
+
             # Commit version bump
-            add_files = [str(VERSION_FILE), str(PYPROJECT_FILE)]
+            add_files = [str(VERSION_FILE), str(PYPROJECT_FILE), str(REPO_ROOT / "uv.lock")]
             if ACP_REGISTRY_MANIFEST.exists():
                 add_files.append(str(ACP_REGISTRY_MANIFEST))
             add_result = git_result("add", *add_files)
