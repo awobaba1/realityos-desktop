@@ -1,24 +1,33 @@
 import { RowButton } from '@/components/ui/row-button'
-import { useI18n } from '@/i18n'
+import { translateNow, useI18n } from '@/i18n'
 import { Check, ChevronRight, Terminal } from '@/lib/icons'
 import type { OAuthProvider } from '@/types/hermes'
 
-const PROVIDER_DISPLAY: Record<string, { order: number; title: string }> = {
-  nous: { order: 0, title: 'Nous Portal' },
-  'openai-codex': { order: 1, title: 'OpenAI 授权 (ChatGPT)' },
-  'minimax-oauth': { order: 2, title: 'MiniMax' },
-  'qwen-oauth': { order: 3, title: 'Qwen Code' },
-  'xai-oauth': { order: 4, title: 'xAI Grok' },
+// 展示顺序仅此一处；标题走 i18n catalog（onboarding.providerTitles），
+// 这样测试世界（DEFAULT_LOCALE=en）渲染英文、生产（zh）渲染中文（ADR-V6-077）。
+// 纯品牌名（Nous Portal / MiniMax / …）各语言一致，真正本地化的是方法后缀
+//（OAuth / API Key）。providerTitle 经 runtimeLocale 解析，调用方签名不变。
+const PROVIDER_ORDER: Record<string, number> = {
+  nous: 0,
+  'openai-codex': 1,
+  'minimax-oauth': 2,
+  'qwen-oauth': 3,
+  'xai-oauth': 4,
   // 两条 Anthropic 入口排在最后：先是 API 密钥方式，再是
   // 订阅授权方式（仅在有额外用量额度时可用）。
-  anthropic: { order: 5, title: 'Anthropic API 密钥' },
-  'claude-code': { order: 6, title: 'Anthropic 授权：需额外用量额度方可使用订阅' }
+  anthropic: 5,
+  'claude-code': 6
 }
 
 const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
 
-export const providerTitle = (p: OAuthProvider) => PROVIDER_DISPLAY[p.id]?.title ?? p.name
-const orderOf = (p: OAuthProvider) => PROVIDER_DISPLAY[p.id]?.order ?? 99
+export const providerTitle = (p: OAuthProvider): string => {
+  const key = `onboarding.providerTitles.${p.id}`
+  const localized = translateNow(key)
+  // translateNow 在无法解析时原样返回 key；此时回落到 provider 自报名称。
+  return localized === key ? p.name : localized
+}
+const orderOf = (p: OAuthProvider) => PROVIDER_ORDER[p.id] ?? 99
 
 export const sortProviders = (providers: OAuthProvider[]) =>
   [...providers].sort((a, b) => orderOf(a) - orderOf(b) || a.name.localeCompare(b.name))

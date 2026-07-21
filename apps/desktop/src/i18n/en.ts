@@ -2089,6 +2089,15 @@ export const en: Translations = {
       device_code: 'Opens a verification page in your browser — RealityOS connects automatically',
       external: 'Sign in once in your terminal, then come back to chat'
     },
+    providerTitles: {
+      nous: 'Nous Portal',
+      'openai-codex': 'OpenAI OAuth (ChatGPT)',
+      'minimax-oauth': 'MiniMax',
+      'qwen-oauth': 'Qwen Code',
+      'xai-oauth': 'xAI Grok',
+      anthropic: 'Anthropic API Key',
+      'claude-code': 'Anthropic OAuth: Required Extra Usage Credits to Use Subscription'
+    },
     startingSignIn: provider => `Starting sign-in for ${provider}...`,
     verifyingCode: provider => `Verifying your code with ${provider}...`,
     connectedProvider: provider => `${provider} connected`,

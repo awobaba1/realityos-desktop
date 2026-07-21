@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_LOCALE, isLocale, isSupportedLocaleValue, localeConfigValue, normalizeLocale } from './languages'
+import {
+  DEFAULT_LOCALE,
+  isLocale,
+  isSupportedLocaleValue,
+  localeConfigValue,
+  normalizeLocale,
+  resolveDefaultLocale
+} from './languages'
 
 describe('desktop i18n languages', () => {
   it('normalizes supported locale aliases', () => {
@@ -39,5 +46,21 @@ describe('desktop i18n languages', () => {
     expect(localeConfigValue('zh')).toBe('zh')
     expect(localeConfigValue('zh-hant')).toBe('zh-hant')
     expect(localeConfigValue('ja')).toBe('ja')
+  })
+
+  it('pins the test-world default locale to en (ADR-V6-077)', () => {
+    // Under vitest the default is pinned to 'en' so upstream component tests
+    // that assert English copy (and render without I18nProvider) stay green.
+    expect(DEFAULT_LOCALE).toBe('en')
+    expect(resolveDefaultLocale()).toBe('en')
+  })
+
+  it('ships zh as the production default (ADR-V6-077)', () => {
+    // The shipped (non-test) default is zh — new users see Chinese. This guard
+    // pins that contract so a future edit cannot silently flip the product
+    // default without also touching this test.
+    expect(resolveDefaultLocale('production')).toBe('zh')
+    expect(resolveDefaultLocale('development')).toBe('zh')
+    expect(resolveDefaultLocale('test')).toBe('en')
   })
 })

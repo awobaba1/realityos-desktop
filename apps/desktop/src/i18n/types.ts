@@ -1720,6 +1720,7 @@ export interface Translations {
     connecting: string
     update: string
     flowSubtitles: Record<string, string>
+    providerTitles: Record<string, string>
     startingSignIn: (provider: string) => string
     verifyingCode: (provider: string) => string
     connectedProvider: (provider: string) => string

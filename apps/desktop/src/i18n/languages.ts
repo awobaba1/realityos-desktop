@@ -2,9 +2,20 @@ import { normalize } from '@/lib/text'
 
 import type { Locale } from './types'
 
-// 面向中文用户：默认简体中文（ADR：安装包零英文）。新用户无 config 时 fallback 到 zh，
-// 走 i18n 的界面自动中文；硬编码英文另由主进程/渲染中文化改造覆盖。
-export const DEFAULT_LOCALE: Locale = 'zh'
+// 面向中文用户：默认简体中文（ADR-V6-077：安装包零英文）。新用户无 config 时 fallback
+// 到 zh，走 i18n 的界面自动中文；硬编码英文另由主进程/渲染中文化改造覆盖。
+//
+// 测试世界例外（同 ADR-V6-077）：upstream 组件测试（streaming / model-settings 等）多数
+// 不挂 I18nProvider，会落到 I18nContext 在模块加载时冻结的默认值
+// { locale: DEFAULT_LOCALE, t: TRANSLATIONS[DEFAULT_LOCALE] }（见 context.tsx）。若测试
+// 世界也用 zh，约 24 个断言英文文案的上游测试会假绿失败。故 vitest（mode==='test'）把
+// 默认 pin 回 en，dev/prod 仍 zh——单一事实源解耦「测试世界」与「生产默认」，既不改 24 个
+// 上游测试，也不为测试改写产品默认。接受可选 mode 参数仅为可测性（见 languages.test）。
+export function resolveDefaultLocale(mode: string = import.meta.env.MODE): Locale {
+  return mode === 'test' ? 'en' : 'zh'
+}
+
+export const DEFAULT_LOCALE: Locale = resolveDefaultLocale()
 
 export const LOCALE_OPTIONS = [
   {

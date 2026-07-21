@@ -2256,6 +2256,15 @@ export const zh: Translations = {
       device_code: '在浏览器中打开验证页面 — RealityOS 会自动连接',
       external: '先在终端登录一次，然后回来继续对话'
     },
+    providerTitles: {
+      nous: 'Nous Portal',
+      'openai-codex': 'OpenAI 授权 (ChatGPT)',
+      'minimax-oauth': 'MiniMax',
+      'qwen-oauth': 'Qwen Code',
+      'xai-oauth': 'xAI Grok',
+      anthropic: 'Anthropic API 密钥',
+      'claude-code': 'Anthropic 授权：需额外用量额度方可使用订阅'
+    },
     startingSignIn: provider => `正在为 ${provider} 启动登录...`,
     verifyingCode: provider => `正在通过 ${provider} 验证你的代码...`,
     connectedProvider: provider => `${provider} 已连接`,
