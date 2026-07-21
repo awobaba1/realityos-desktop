@@ -2066,6 +2066,32 @@ def get_last_tag():
     return None
 
 
+def _normalize_repo_url(url: str) -> str:
+    """Normalize a git remote URL to its HTTPS form (ADR-V6-079).
+
+    Handles SSH (git@host:owner/repo), ssh://, and HTTPS forms, with or
+    without a trailing .git. Extracted from get_repo_url for unit testing.
+    """
+    url = url.strip().removeprefix("ssh://")
+    if url.startswith("git@"):
+        url = url.replace(":", "/", 1).removeprefix("git@")
+    url = url.removeprefix("https://")
+    if url.endswith(".git"):
+        url = url[:-4]
+    return f"https://{url}"
+
+
+def get_repo_url():
+    """Derive the HTTPS repo URL from the origin remote (ADR-V6-079).
+
+    generate_changelog used to default to the NousResearch upstream URL, but
+    this is the awobaba1 fork — upstream commit/compare links 404 on the
+    fork's SHAs. Derive from `git remote get-url origin` so changelog links
+    point where the commits actually live.
+    """
+    return _normalize_repo_url(git("remote", "get-url", "origin"))
+
+
 def next_available_tag(base_tag: str) -> tuple[str, str]:
     """Return a tag/calver pair, suffixing same-day releases when needed."""
     if not git("tag", "--list", base_tag):
@@ -2309,20 +2335,28 @@ def get_commits(since_tag=None):
     else:
         range_spec = "HEAD"
 
-    # Format: hash<US>author_name<US>author_email<US>subject\0body
-    # Using %x1f (unit separator) to avoid conflict with | in author names
+    # Format: hash<US>author_name<US>author_email<US>subject\0body\0
+    # Using %x1f (unit separator) to avoid conflict with | in author names.
+    # ADR-V6-079: `-z` NUL-terminates each log entry, so consecutive records
+    # are separated by \0\0 (record's trailing %x00 + -z terminator). Without
+    # -z, git separates entries with \0\n and the split("\0\0") below collapses
+    # the whole range into ONE chunk — silently truncating the changelog to
+    # only the first commit since the last tag (C7 silent failure).
     log = git(
         "log", range_spec,
         "--format=%H%x1f%an%x1f%ae%x1f%s%x00%b%x00",
         "--no-merges",
+        "-z",
     )
 
     if not log:
         return []
 
     commits = []
-    # Split on double-null to get each commit entry, since body ends with \0
-    # and format ends with \0, each record ends with \0\0 between entries
+    # Split on double-null to get each commit entry. `-z` (above) NUL-terminates
+    # each entry, so the trailing %x00 of one record + the terminator form \0\0
+    # between records (ADR-V6-079). The final record leaves a trailing \0\0 →
+    # one empty trailing chunk, skipped by the `if not entry` guard below.
     for entry in log.split("\0\0"):
         entry = entry.strip()
         if not entry:
@@ -2526,11 +2560,13 @@ def main():
     print(f"{'='*60}")
     print()
 
-    # Generate changelog
+    # Generate changelog (ADR-V6-079: repo_url derived from origin, not the
+    # hardcoded NousResearch upstream, so commit/compare links resolve on the fork).
     changelog = generate_changelog(
         commits, tag_name, new_version,
         prev_tag=prev_tag,
         first_release=args.first_release,
+        repo_url=get_repo_url(),
     )
 
     if args.output:
