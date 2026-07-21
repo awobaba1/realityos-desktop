@@ -39,6 +39,19 @@ def cmd_dlq(args) -> int:
                 return 0
             _print_resolve_result(ok, resolve_id, stats)
             return 0
+        if getattr(args, "resolve_all", False):
+            # ADR-V6-073: bulk-resolve consumer for dlq_resolve_all (the
+            # half-done ADR-V6-065 primitive that had no CLI caller until now).
+            count = store.dlq_resolve_all(source=getattr(args, "source", None))
+            stats = store.dlq_stats()
+            if getattr(args, "as_json", False):
+                print(json.dumps(
+                    {"resolved_all": count,
+                     "source": getattr(args, "source", None), "stats": stats},
+                    ensure_ascii=False))
+                return 0
+            _print_resolve_all_result(count, getattr(args, "source", None), stats)
+            return 0
         if getattr(args, "stats_only", False):
             stats = store.dlq_stats()
             if getattr(args, "as_json", False):
@@ -125,4 +138,15 @@ def _print_resolve_result(ok, dlq_id, stats) -> None:
         print(f"✅ DLQ {dlq_id} 已标记 resolved。")
     else:
         print(f"⚠️ DLQ {dlq_id} 未翻状态（不存在 / 已 resolved / 异常）。")
+    print(f"  当前未解决：{stats['unresolved']} / 总 {stats['total']}")
+
+
+def _print_resolve_all_result(count, source, stats) -> None:
+    scope = f"来源 {source!r} 的" if source else "全部"
+    if count == 0:
+        # Honest empty state — NOT "0 resolved" sold as success.
+        print(f"=== 批量 resolve（{scope}）：无可解决记录 ===")
+        print("没有未解决的 DLQ 行（可能本就为空，或 --source 不匹配）。")
+    else:
+        print(f"=== 批量 resolve（{scope}）：✅ {count} 条已标记 resolved（ADR-V6-073）===")
     print(f"  当前未解决：{stats['unresolved']} / 总 {stats['total']}")

@@ -55,6 +55,10 @@ def build_dlq_parser(subparsers, *, cmd_dlq: Callable) -> None:
         "--resolve", dest="resolve_id", default=None,
         help="标记单条 DLQ 为 resolved（创始人 ack；状态元数据翻转）。")
     p.add_argument(
+        "--resolve-all", dest="resolve_all", action="store_true",
+        help="批量标记所有未解决 DLQ 为 resolved（ADR-V6-073；dlq_resolve_all "
+             "的消费方）。可选 --source 限定来源。与 --resolve 互斥（--resolve 优先）。")
+    p.add_argument(
         "--json", action="store_true", dest="as_json",
         help="机器可读 JSON。")
     p.set_defaults(func=cmd_dlq)
