@@ -24,9 +24,11 @@ const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/
 export const providerTitle = (p: OAuthProvider): string => {
   const key = `onboarding.providerTitles.${p.id}`
   const localized = translateNow(key)
+
   // translateNow 在无法解析时原样返回 key；此时回落到 provider 自报名称。
   return localized === key ? p.name : localized
 }
+
 const orderOf = (p: OAuthProvider) => PROVIDER_ORDER[p.id] ?? 99
 
 export const sortProviders = (providers: OAuthProvider[]) =>
