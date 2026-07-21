@@ -23,9 +23,9 @@ const ArtifactsView = lazy(async () => ({ default: (await import('../artifacts')
 
 // Built-in page views + their pane titles, keyed by route.
 const BUILTIN_PAGES: Record<string, { render: () => ReactNode; title: string }> = {
-  [ARTIFACTS_ROUTE]: { render: () => <ArtifactsView />, title: 'Artifacts' },
-  [MESSAGING_ROUTE]: { render: () => <MessagingView />, title: 'Messaging' },
-  [SKILLS_ROUTE]: { render: () => <SkillsView />, title: 'Capabilities' }
+  [ARTIFACTS_ROUTE]: { render: () => <ArtifactsView />, title: '工件' },
+  [MESSAGING_ROUTE]: { render: () => <MessagingView />, title: '消息' },
+  [SKILLS_ROUTE]: { render: () => <SkillsView />, title: '能力' }
 }
 
 /** Humanize a route path into a tab title: `/my-atlas` → `My Atlas`. */

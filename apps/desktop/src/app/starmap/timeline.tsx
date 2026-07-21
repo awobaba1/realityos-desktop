@@ -194,7 +194,7 @@ export const Timeline = memo(function Timeline({
       </button>
 
       <div
-        aria-label="Timeline scrubber"
+        aria-label="时间轴滑块"
         aria-valuemax={100}
         aria-valuemin={0}
         aria-valuenow={Math.round(revealStore.get() * 100)}

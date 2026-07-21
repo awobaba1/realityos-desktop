@@ -2,7 +2,7 @@
   "name": "realityos-desktop",
   "productName": "RealityOS",
   "private": true,
-  "version": "0.17.0",
+  "version": "0.18.3",
   "description": "Native desktop shell for RealityOS Agent.",
   "author": "RealityOS",
   "type": "module",
@@ -204,8 +204,8 @@
         "CFBundleDisplayName": "RealityOS",
         "CFBundleExecutable": "RealityOS",
         "CFBundleName": "RealityOS",
-        "NSAudioCaptureUsageDescription": "RealityOS uses audio capture for voice conversations.",
-        "NSMicrophoneUsageDescription": "RealityOS uses the microphone for voice input and voice conversations."
+        "NSAudioCaptureUsageDescription": "RealityOS 需要使用音频采集来进行语音对话。",
+        "NSMicrophoneUsageDescription": "RealityOS 需要使用麦克风进行语音输入和语音对话。"
       },
       "gatekeeperAssess": false,
       "hardenedRuntime": true,
@@ -215,7 +215,7 @@
       ]
     },
     "dmg": {
-      "title": "Install RealityOS",
+      "title": "安装 RealityOS",
       "backgroundColor": "#f5f5f7",
       "iconSize": 96,
       "window": {
@@ -247,7 +247,7 @@
     "linux": {
       "category": "Development",
       "maintainer": "RealityOS",
-      "synopsis": "Native desktop shell for RealityOS Agent.",
+      "synopsis": "RealityOS Agent 原生桌面客户端。",
       "target": [
         "AppImage",
         "deb",
@@ -258,6 +258,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
+      "installerLanguages": ["zh_CN"],
       "shortcutName": "RealityOS",
       "uninstallDisplayName": "RealityOS",
       "warningsAsErrors": false

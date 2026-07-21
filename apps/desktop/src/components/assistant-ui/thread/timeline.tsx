@@ -230,7 +230,7 @@ export const ThreadTimeline: FC = () => {
 
   return (
     <div
-      aria-label="Conversation timeline"
+      aria-label="对话时间轴"
       className="group/timeline pointer-events-auto absolute right-0 top-1/2 z-40 flex -translate-y-1/2 flex-col items-end"
       data-slot="thread-timeline"
       data-suppress-pane-reveal=""

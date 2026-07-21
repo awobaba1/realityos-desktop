@@ -68,7 +68,7 @@ export function SplitButton({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            aria-label="More actions"
+            aria-label="更多操作"
             className="rounded-l-none border-l border-current/25 px-2"
             disabled={disabled}
             size={size}

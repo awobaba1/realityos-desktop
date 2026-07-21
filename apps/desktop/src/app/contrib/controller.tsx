@@ -147,7 +147,7 @@ registry.registerMany([
     id: 'workspace',
     area: 'panes',
     // Live-retitled to the loaded session by syncWorkspaceTitle below.
-    title: 'New session',
+    title: '新建会话',
     data: {
       placement: 'main',
       minWidth: '22vw',
@@ -252,7 +252,7 @@ registry.registerMany([
     area: KEYBINDS_AREA,
     data: {
       id: 'layout.editMode',
-      label: 'Toggle layout edit mode',
+      label: '切换布局编辑模式',
       defaults: ['mod+shift+\\'],
       run: toggleLayoutEditMode
     } satisfies KeybindContribution
@@ -262,7 +262,7 @@ registry.registerMany([
     area: PALETTE_AREA,
     data: {
       id: 'layout.editMode',
-      label: 'Toggle layout edit mode',
+      label: '切换布局编辑模式',
       action: 'layout.editMode',
       icon: LayoutDashboard,
       keywords: ['layout', 'zones', 'panes', 'edit', 'rearrange'],
@@ -276,7 +276,7 @@ registry.registerMany([
     area: PALETTE_AREA,
     data: {
       id: 'plugins.reload',
-      label: 'Reload desktop plugins',
+      label: '重新加载桌面插件',
       keywords: ['plugins', 'reload', 'refresh', 'desktop'],
       run: () => void discoverRuntimePlugins()
     } satisfies PaletteContribution
@@ -286,7 +286,7 @@ registry.registerMany([
     area: PALETTE_AREA,
     data: {
       id: 'layout.reset',
-      label: 'Reset layout',
+      label: '重置布局',
       icon: LayoutDashboard,
       keywords: ['layout', 'reset', 'default', 'panes'],
       run: resetLayoutTree
@@ -298,7 +298,7 @@ registry.registerMany([
     area: PALETTE_AREA,
     data: {
       id: 'keybinds.panel',
-      label: 'Keyboard shortcuts',
+      label: '键盘快捷键',
       keywords: ['keybinds', 'shortcuts', 'hotkeys', 'keyboard'],
       run: () => window.dispatchEvent(new CustomEvent('hermes:open-keybinds'))
     } satisfies PaletteContribution
@@ -370,10 +370,10 @@ const QUAD_TREE = split(
 )
 
 registry.registerMany([
-  { id: 'default', area: 'layouts', title: 'Default', order: 0, data: DEFAULT_TREE },
-  { id: 'focus', area: 'layouts', title: 'Focus', order: 10, data: FOCUS_TREE },
-  { id: 'terminal-deck', area: 'layouts', title: 'Terminal deck', order: 20, data: TERMINAL_TREE },
-  { id: 'quad', area: 'layouts', title: 'Quad', order: 30, data: QUAD_TREE }
+  { id: 'default', area: 'layouts', title: '默认', order: 0, data: DEFAULT_TREE },
+  { id: 'focus', area: 'layouts', title: '专注', order: 10, data: FOCUS_TREE },
+  { id: 'terminal-deck', area: 'layouts', title: '终端面板', order: 20, data: TERMINAL_TREE },
+  { id: 'quad', area: 'layouts', title: '四宫格', order: 30, data: QUAD_TREE }
 ])
 
 // Insight reports (PRD #4 weekly mirror + #2 daily report, ADR-V6-020): a core
@@ -448,7 +448,7 @@ const syncWorkspaceTitle = () => {
   registry.register({
     id: 'workspace',
     area: 'panes',
-    title: stored ? storedSessionTitle(stored) : 'New session',
+    title: stored ? storedSessionTitle(stored) : '新建会话',
     data: {
       // Pages aren't tab-able: the main zone's bar stands down while one shows.
       headerVeto: $workspaceIsPage.get(),
@@ -604,7 +604,7 @@ registry.register({
   area: PALETTE_AREA,
   data: {
     id: 'logs.toggle',
-    label: 'Toggle logs',
+    label: '切换日志面板',
     keywords: ['logs', 'agent log', 'tail', 'debug'],
     run: () => $logsOpen.set(!$logsOpen.get())
   } satisfies PaletteContribution

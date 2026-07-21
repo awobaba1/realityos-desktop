@@ -5,14 +5,14 @@ import type { OAuthProvider } from '@/types/hermes'
 
 const PROVIDER_DISPLAY: Record<string, { order: number; title: string }> = {
   nous: { order: 0, title: 'Nous Portal' },
-  'openai-codex': { order: 1, title: 'OpenAI OAuth (ChatGPT)' },
+  'openai-codex': { order: 1, title: 'OpenAI 授权 (ChatGPT)' },
   'minimax-oauth': { order: 2, title: 'MiniMax' },
   'qwen-oauth': { order: 3, title: 'Qwen Code' },
   'xai-oauth': { order: 4, title: 'xAI Grok' },
-  // Both Anthropic entries sit at the bottom: the API-key path first, then
-  // the subscription OAuth path (only works with extra usage credits).
-  anthropic: { order: 5, title: 'Anthropic API Key' },
-  'claude-code': { order: 6, title: 'Anthropic OAuth: Required Extra Usage Credits to Use Subscription' }
+  // 两条 Anthropic 入口排在最后：先是 API 密钥方式，再是
+  // 订阅授权方式（仅在有额外用量额度时可用）。
+  anthropic: { order: 5, title: 'Anthropic API 密钥' },
+  'claude-code': { order: 6, title: 'Anthropic 授权：需额外用量额度方可使用订阅' }
 }
 
 const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`

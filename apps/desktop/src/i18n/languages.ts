@@ -2,7 +2,9 @@ import { normalize } from '@/lib/text'
 
 import type { Locale } from './types'
 
-export const DEFAULT_LOCALE: Locale = 'en'
+// 面向中文用户：默认简体中文（ADR：安装包零英文）。新用户无 config 时 fallback 到 zh，
+// 走 i18n 的界面自动中文；硬编码英文另由主进程/渲染中文化改造覆盖。
+export const DEFAULT_LOCALE: Locale = 'zh'
 
 export const LOCALE_OPTIONS = [
   {

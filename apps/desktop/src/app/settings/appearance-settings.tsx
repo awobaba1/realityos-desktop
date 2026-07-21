@@ -344,7 +344,7 @@ export function AppearanceSettings() {
                   <input
                     className="w-full rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) px-3 py-1.5 text-[length:var(--conversation-caption-font-size)] outline-none placeholder:text-(--ui-text-tertiary) focus:border-(--ui-stroke-secondary)"
                     onChange={event => setQuery(event.target.value)}
-                    placeholder="Search your themes or the VS Code Marketplace…"
+                    placeholder="搜索你的主题或 VS Code 市场…"
                     spellCheck={false}
                     value={query}
                   />

@@ -53,7 +53,7 @@ describe('desktop i18n runtime translator', () => {
     expect(fieldCopyForSchemaKey(zh.settings.fieldDescriptions, field)).toBe('当后端提供推理内容时予以显示。')
   })
 
-  it('falls back to English when the active locale cannot resolve a key', () => {
+  it('falls back to the default locale (zh) when the active locale cannot resolve a key', () => {
     const boot = TRANSLATIONS.ja.boot as { ready?: string }
     const originalReady = boot.ready
 
@@ -61,7 +61,7 @@ describe('desktop i18n runtime translator', () => {
       boot.ready = undefined
       setRuntimeI18nLocale('ja')
 
-      expect(translateNow('boot.ready')).toBe('RealityOS Desktop is ready')
+      expect(translateNow('boot.ready')).toBe('RealityOS 桌面版已就绪')
     } finally {
       boot.ready = originalReady
     }

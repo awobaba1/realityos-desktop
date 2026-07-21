@@ -41,35 +41,35 @@ export const PROVIDER_GROUPS: ProviderPrefix[] = [
   {
     prefix: 'NOUS_',
     name: 'Nous Portal',
-    description: 'Hosted Hermes & Nous-trained models',
+    description: '托管的 Hermes 与 Nous 训练模型',
     docsUrl: 'https://portal.nousresearch.com',
     priority: 0
   },
   {
     prefix: 'OPENROUTER_',
     name: 'OpenRouter',
-    description: 'Aggregator for hundreds of frontier models',
+    description: '聚合数百个前沿模型',
     docsUrl: 'https://openrouter.ai/keys',
     priority: 1
   },
   {
     prefix: 'ANTHROPIC_',
     name: 'Anthropic',
-    description: 'Claude API access (Sonnet, Opus, Haiku)',
+    description: 'Claude API 访问（Sonnet、Opus、Haiku）',
     docsUrl: 'https://console.anthropic.com/settings/keys',
     priority: 2
   },
   {
     prefix: 'XAI_',
     name: 'xAI',
-    description: 'Grok models (use OAuth for SuperGrok / Premium+)',
+    description: 'Grok 模型（SuperGrok / Premium+ 请使用 OAuth）',
     docsUrl: 'https://console.x.ai/',
     priority: 3
   },
   {
     prefix: 'GOOGLE_',
     name: 'Gemini',
-    description: 'Google AI Studio (Gemini 1.5 / 2.0 / 2.5)',
+    description: 'Google AI Studio（Gemini 1.5 / 2.0 / 2.5）',
     docsUrl: 'https://aistudio.google.com/app/apikey',
     priority: 4
   },
@@ -77,14 +77,14 @@ export const PROVIDER_GROUPS: ProviderPrefix[] = [
   {
     prefix: 'DEEPSEEK_',
     name: 'DeepSeek',
-    description: 'Direct DeepSeek API (V3.x, R1)',
+    description: 'DeepSeek 官方 API（V3.x、R1）',
     docsUrl: 'https://platform.deepseek.com/api_keys',
     priority: 5
   },
   {
     prefix: 'DASHSCOPE_',
     name: 'DashScope (Qwen)',
-    description: 'Alibaba Cloud DashScope — Qwen and multi-vendor models',
+    description: '阿里云 DashScope — Qwen 及多家厂商模型',
     docsUrl: 'https://modelstudio.console.alibabacloud.com/',
     priority: 6
   },
@@ -92,7 +92,7 @@ export const PROVIDER_GROUPS: ProviderPrefix[] = [
   {
     prefix: 'GLM_',
     name: 'GLM / Z.AI',
-    description: 'Zhipu GLM-4.6 and Z.AI hosted endpoints',
+    description: '智谱 GLM-4.6 与 Z.AI 托管端点',
     docsUrl: 'https://z.ai/',
     priority: 7
   },
@@ -101,91 +101,91 @@ export const PROVIDER_GROUPS: ProviderPrefix[] = [
   {
     prefix: 'KIMI_',
     name: 'Kimi / Moonshot',
-    description: 'Moonshot Kimi K2 / coding endpoints',
+    description: 'Moonshot Kimi K2 / 编程端点',
     docsUrl: 'https://platform.moonshot.cn/',
     priority: 8
   },
   {
     prefix: 'KIMI_CN_',
     name: 'Kimi (China)',
-    description: 'Moonshot China endpoint',
+    description: 'Moonshot 国内端点',
     docsUrl: 'https://platform.moonshot.cn/',
     priority: 9
   },
   {
     prefix: 'MINIMAX_',
     name: 'MiniMax',
-    description: 'MiniMax-M2 and Hailuo international endpoints',
+    description: 'MiniMax-M2 与海螺国际端点',
     docsUrl: 'https://www.minimax.io/',
     priority: 10
   },
   {
     prefix: 'MINIMAX_CN_',
     name: 'MiniMax (China)',
-    description: 'MiniMax mainland China endpoint',
+    description: 'MiniMax 中国大陆端点',
     docsUrl: 'https://www.minimaxi.com/',
     priority: 11
   },
   {
     prefix: 'HF_',
     name: 'Hugging Face',
-    description: 'Inference Providers — 20+ open models via router.huggingface.co',
+    description: 'Inference Providers — 经 router.huggingface.co 提供 20+ 开源模型',
     docsUrl: 'https://huggingface.co/settings/tokens',
     priority: 12
   },
   {
     prefix: 'OPENCODE_ZEN_',
     name: 'OpenCode Zen',
-    description: 'Pay-as-you-go access to curated coding models',
+    description: '按量付费访问精选编程模型',
     docsUrl: 'https://opencode.ai/auth',
     priority: 13
   },
   {
     prefix: 'OPENCODE_GO_',
     name: 'OpenCode Go',
-    description: '$10/month subscription for open coding models',
+    description: '$10/月订阅，覆盖开源编程模型',
     docsUrl: 'https://opencode.ai/auth',
     priority: 14
   },
   {
     prefix: 'NVIDIA_',
     name: 'NVIDIA NIM',
-    description: 'build.nvidia.com or your own local NIM endpoint',
+    description: 'build.nvidia.com 或自建的本地 NIM 端点',
     docsUrl: 'https://build.nvidia.com/',
     priority: 15
   },
   {
     prefix: 'OLLAMA_',
     name: 'Ollama Cloud',
-    description: 'Cloud-hosted open models from ollama.com',
+    description: 'ollama.com 提供的云托管开源模型',
     docsUrl: 'https://ollama.com/settings',
     priority: 16
   },
   {
     prefix: 'LM_',
     name: 'LM Studio',
-    description: 'Local LM Studio server (OpenAI-compatible)',
+    description: '本地 LM Studio 服务器（OpenAI 兼容）',
     docsUrl: 'https://lmstudio.ai/docs/local-server',
     priority: 17
   },
   {
     prefix: 'STEPFUN_',
     name: 'StepFun',
-    description: 'StepFun Step Plan coding models',
+    description: 'StepFun Step Plan 编程模型',
     docsUrl: 'https://platform.stepfun.com/',
     priority: 18
   },
   {
     prefix: 'XIAOMI_',
     name: 'Xiaomi MiMo',
-    description: 'MiMo-V2.5 and Xiaomi proprietary models',
+    description: 'MiMo-V2.5 与小米自研模型',
     docsUrl: 'https://platform.xiaomimimo.com',
     priority: 19
   },
   {
     prefix: 'ARCEEAI_',
     name: 'Arcee AI',
-    description: 'Arcee-hosted small + medium models',
+    description: 'Arcee 托管的小型 + 中型模型',
     docsUrl: 'https://chat.arcee.ai/',
     priority: 20
   },
@@ -193,21 +193,21 @@ export const PROVIDER_GROUPS: ProviderPrefix[] = [
   {
     prefix: 'GMI_',
     name: 'GMI Cloud',
-    description: 'GMI Cloud GPU + model serving',
+    description: 'GMI Cloud GPU + 模型托管',
     docsUrl: 'https://www.gmicloud.ai/',
     priority: 21
   },
   {
     prefix: 'AZURE_FOUNDRY_',
     name: 'Azure Foundry',
-    description: 'Azure AI Foundry custom endpoints (OpenAI / Anthropic-compatible)',
+    description: 'Azure AI Foundry 自定义端点（兼容 OpenAI / Anthropic）',
     docsUrl: 'https://ai.azure.com/',
     priority: 22
   },
   {
     prefix: 'AWS_',
     name: 'AWS Bedrock',
-    description: 'Authenticate via AWS profile + region',
+    description: '通过 AWS profile + region 鉴权',
     docsUrl: 'https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-regions.html',
     priority: 23
   }
@@ -277,227 +277,227 @@ export const ENUM_OPTIONS: Record<string, string[]> = {
 }
 
 export const FIELD_LABELS: Record<string, string> = defineFieldCopy({
-  model: 'Default Model',
-  modelContextLength: 'Context Window',
-  fallbackProviders: 'Fallback Models',
-  toolsets: 'Enabled Toolsets',
-  timezone: 'Timezone',
+  model: '默认模型',
+  modelContextLength: '上下文窗口',
+  fallbackProviders: '备用模型',
+  toolsets: '启用的工具集',
+  timezone: '时区',
   display: {
-    personality: 'Personality',
-    showReasoning: 'Reasoning Blocks'
+    personality: '人格',
+    showReasoning: '推理区块'
   },
   agent: {
-    maxTurns: 'Max Agent Steps',
-    imageInputMode: 'Image Attachments',
-    apiMaxRetries: 'API Retries',
-    serviceTier: 'Service Tier',
-    toolUseEnforcement: 'Tool-Use Enforcement'
+    maxTurns: 'Agent 最大步数',
+    imageInputMode: '图片附件',
+    apiMaxRetries: 'API 重试次数',
+    serviceTier: '服务等级',
+    toolUseEnforcement: '工具调用强制策略'
   },
   terminal: {
-    cwd: 'Working Directory',
-    backend: 'Execution Backend',
-    timeout: 'Command Timeout',
-    persistentShell: 'Persistent Shell',
-    envPassthrough: 'Environment Passthrough',
-    dockerImage: 'Docker Image',
-    singularityImage: 'Singularity Image',
-    modalImage: 'Modal Image',
-    daytonaImage: 'Daytona Image'
+    cwd: '工作目录',
+    backend: '执行后端',
+    timeout: '命令超时',
+    persistentShell: '持久化 Shell',
+    envPassthrough: '环境变量透传',
+    dockerImage: 'Docker 镜像',
+    singularityImage: 'Singularity 镜像',
+    modalImage: 'Modal 镜像',
+    daytonaImage: 'Daytona 镜像'
   },
-  fileReadMaxChars: 'File Read Limit',
+  fileReadMaxChars: '文件读取上限',
   toolOutput: {
-    maxBytes: 'Terminal Output Limit',
-    maxLines: 'File Page Limit',
-    maxLineLength: 'Line Length Limit'
+    maxBytes: '终端输出上限',
+    maxLines: '文件分页上限',
+    maxLineLength: '行宽上限'
   },
   codeExecution: {
-    mode: 'Code Execution Mode'
+    mode: '代码执行模式'
   },
   approvals: {
-    mode: 'Approval Mode',
-    timeout: 'Approval Timeout',
-    mcpReloadConfirm: 'Confirm MCP Reloads'
+    mode: '审批模式',
+    timeout: '审批超时',
+    mcpReloadConfirm: '确认 MCP 重载'
   },
-  commandAllowlist: 'Command Allowlist',
+  commandAllowlist: '命令白名单',
   security: {
-    redactSecrets: 'Redact Secrets',
-    allowPrivateUrls: 'Allow Private URLs'
+    redactSecrets: '隐藏密钥',
+    allowPrivateUrls: '允许私有 URL'
   },
   browser: {
-    allowPrivateUrls: 'Browser Private URLs',
-    autoLocalForPrivateUrls: 'Local Browser For Private URLs'
+    allowPrivateUrls: '浏览器私有 URL',
+    autoLocalForPrivateUrls: '私有 URL 使用本地浏览器'
   },
   checkpoints: {
-    enabled: 'File Checkpoints',
-    maxSnapshots: 'Checkpoint Limit'
+    enabled: '文件检查点',
+    maxSnapshots: '检查点数量上限'
   },
   voice: {
-    recordKey: 'Voice Shortcut',
-    maxRecordingSeconds: 'Max Recording Length',
-    autoTts: 'Read Responses Aloud'
+    recordKey: '语音快捷键',
+    maxRecordingSeconds: '最长录音时长',
+    autoTts: '朗读回复'
   },
   stt: {
-    enabled: 'Speech To Text',
-    echoTranscripts: 'Echo Transcripts',
-    provider: 'Speech-To-Text Provider',
+    enabled: '语音转文字',
+    echoTranscripts: '回显转写结果',
+    provider: '语音转文字提供商',
     local: {
-      model: 'Local Transcription Model',
-      language: 'Transcription Language'
+      model: '本地转写模型',
+      language: '转写语言'
     },
     openai: {
-      model: 'OpenAI STT Model'
+      model: 'OpenAI STT 模型'
     },
     groq: {
-      model: 'Groq STT Model'
+      model: 'Groq STT 模型'
     },
     mistral: {
-      model: 'Mistral STT Model'
+      model: 'Mistral STT 模型'
     },
     elevenlabs: {
-      modelId: 'ElevenLabs STT Model',
-      languageCode: 'ElevenLabs Language',
-      tagAudioEvents: 'Tag Audio Events',
-      diarize: 'Speaker Diarization'
+      modelId: 'ElevenLabs STT 模型',
+      languageCode: 'ElevenLabs 语言',
+      tagAudioEvents: '标记音频事件',
+      diarize: '说话人分离'
     }
   },
   tts: {
-    provider: 'Text-To-Speech Provider',
+    provider: '文字转语音提供商',
     edge: {
-      voice: 'Edge Voice'
+      voice: 'Edge 嗓音'
     },
     openai: {
-      model: 'OpenAI TTS Model',
-      voice: 'OpenAI Voice'
+      model: 'OpenAI TTS 模型',
+      voice: 'OpenAI 嗓音'
     },
     elevenlabs: {
-      voiceId: 'ElevenLabs Voice',
-      modelId: 'ElevenLabs Model'
+      voiceId: 'ElevenLabs 嗓音',
+      modelId: 'ElevenLabs 模型'
     },
     xai: {
-      voiceId: 'xAI (Grok) Voice',
-      language: 'xAI Language'
+      voiceId: 'xAI（Grok）嗓音',
+      language: 'xAI 语言'
     },
     minimax: {
-      model: 'MiniMax TTS Model',
-      voiceId: 'MiniMax Voice'
+      model: 'MiniMax TTS 模型',
+      voiceId: 'MiniMax 嗓音'
     },
     mistral: {
-      model: 'Mistral TTS Model',
-      voiceId: 'Mistral Voice'
+      model: 'Mistral TTS 模型',
+      voiceId: 'Mistral 嗓音'
     },
     gemini: {
-      model: 'Gemini TTS Model',
-      voice: 'Gemini Voice'
+      model: 'Gemini TTS 模型',
+      voice: 'Gemini 嗓音'
     },
     neutts: {
-      model: 'NeuTTS Model',
-      device: 'NeuTTS Device'
+      model: 'NeuTTS 模型',
+      device: 'NeuTTS 设备'
     },
     kittentts: {
-      model: 'KittenTTS Model',
-      voice: 'KittenTTS Voice'
+      model: 'KittenTTS 模型',
+      voice: 'KittenTTS 嗓音'
     },
     piper: {
-      voice: 'Piper Voice'
+      voice: 'Piper 嗓音'
     }
   },
   memory: {
-    memoryEnabled: 'Persistent Memory',
-    userProfileEnabled: 'User Profile',
-    memoryCharLimit: 'Memory Budget',
-    userCharLimit: 'Profile Budget',
-    provider: 'Memory Provider'
+    memoryEnabled: '持久化记忆',
+    userProfileEnabled: '用户画像',
+    memoryCharLimit: '记忆预算',
+    userCharLimit: '画像预算',
+    provider: '记忆提供商'
   },
   context: {
-    engine: 'Context Engine'
+    engine: '上下文引擎'
   },
   compression: {
-    enabled: 'Auto-Compression',
-    threshold: 'Compression Threshold',
-    targetRatio: 'Compression Target',
-    protectLastN: 'Protected Recent Messages'
+    enabled: '自动压缩',
+    threshold: '压缩阈值',
+    targetRatio: '压缩目标比',
+    protectLastN: '受保护的最近消息数'
   },
   delegation: {
-    model: 'Subagent Model',
-    provider: 'Subagent Provider',
-    maxIterations: 'Subagent Turn Limit',
-    maxConcurrentChildren: 'Parallel Subagents',
-    childTimeoutSeconds: 'Subagent Timeout',
-    reasoningEffort: 'Subagent Reasoning Effort'
+    model: '子 Agent 模型',
+    provider: '子 Agent 提供商',
+    maxIterations: '子 Agent 轮次上限',
+    maxConcurrentChildren: '并行子 Agent 数',
+    childTimeoutSeconds: '子 Agent 超时',
+    reasoningEffort: '子 Agent 推理强度'
   },
   updates: {
-    nonInteractiveLocalChanges: 'In-App Update Local Changes'
+    nonInteractiveLocalChanges: '应用内更新时的本地改动'
   }
 })
 
 export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
-  model: 'Used for new chats unless you pick a different model in the composer.',
-  modelContextLength: "Leave at 0 to use the selected model's detected context window.",
-  fallbackProviders: 'Backup provider:model entries to try if the default model fails.',
+  model: '用于新建对话，除非你在输入框另选其他模型。',
+  modelContextLength: '留为 0 表示使用所选模型自动探测到的上下文窗口。',
+  fallbackProviders: '默认模型失败时依次尝试的 provider:model 备用条目。',
   display: {
-    personality: 'Default assistant style for new sessions.',
-    showReasoning: 'Show reasoning sections when the backend provides them.'
+    personality: '新会话的默认助手风格。',
+    showReasoning: '后端提供推理区块时显示。'
   },
-  timezone: 'Used when Hermes needs local time context. Blank uses the system timezone.',
+  timezone: 'Hermes 需要本地时间上下文时使用。留空则使用系统时区。',
   agent: {
-    imageInputMode: 'Controls how image attachments are sent to the model.',
-    maxTurns: 'Upper bound for tool-calling turns before Hermes stops a run.'
+    imageInputMode: '控制图片附件发送给模型的方式。',
+    maxTurns: 'Hermes 在停止一次运行前进行工具调用轮次的上限。'
   },
   terminal: {
-    cwd: 'Default project folder for tool and terminal work.',
-    persistentShell: 'Keep shell state between commands when the backend supports it.',
-    envPassthrough: 'Environment variables to pass into tool execution.',
-    dockerImage: 'Container image used when the execution backend is Docker.',
-    singularityImage: 'Image used when the execution backend is Singularity.',
-    modalImage: 'Image used when the execution backend is Modal.',
-    daytonaImage: 'Image used when the execution backend is Daytona.'
+    cwd: '工具与终端操作的默认项目目录。',
+    persistentShell: '后端支持时在命令之间保留 shell 状态。',
+    envPassthrough: '透传到工具执行环境的环境变量。',
+    dockerImage: '执行后端为 Docker 时使用的容器镜像。',
+    singularityImage: '执行后端为 Singularity 时使用的镜像。',
+    modalImage: '执行后端为 Modal 时使用的镜像。',
+    daytonaImage: '执行后端为 Daytona 时使用的镜像。'
   },
   codeExecution: {
-    mode: 'How strictly code execution is scoped to the current project.'
+    mode: '代码执行限定在当前项目内的严格程度。'
   },
-  fileReadMaxChars: 'Maximum characters Hermes can read from one file request.',
+  fileReadMaxChars: 'Hermes 单次文件读取的最大字符数。',
   approvals: {
-    mode: 'How Hermes handles commands that need explicit approval.',
-    timeout: 'How long approval prompts wait before timing out.'
+    mode: 'Hermes 如何处理需要明确批准的命令。',
+    timeout: '审批提示在超时前的等待时长。'
   },
   security: {
-    redactSecrets: 'Hide detected secrets from model-visible content when possible.'
+    redactSecrets: '尽可能从模型可见内容中隐藏检测到的密钥。'
   },
   checkpoints: {
-    enabled: 'Create rollback snapshots before file edits.'
+    enabled: '在文件编辑前创建可回滚快照。'
   },
   memory: {
-    memoryEnabled: 'Save durable memories that can help future sessions.',
-    userProfileEnabled: 'Maintain a compact profile of user preferences.'
+    memoryEnabled: '保存可辅助后续会话的持久记忆。',
+    userProfileEnabled: '维护一份精简的用户偏好画像。'
   },
   context: {
-    engine: 'Strategy for managing long conversations near the context limit.'
+    engine: '在接近上下文上限时管理长对话的策略。'
   },
   compression: {
-    enabled: 'Summarize older context when conversations get large.'
+    enabled: '对话变长时自动总结较早的上下文。'
   },
   voice: {
-    autoTts: 'Automatically speak assistant responses.'
+    autoTts: '自动朗读助手回复。'
   },
   tts: {
     xai: {
-      voiceId: 'xAI voice ID (e.g. eve) or a custom voice ID.',
-      language: 'Spoken language code, e.g. en.'
+      voiceId: 'xAI 嗓音 ID（如 eve）或自定义嗓音 ID。',
+      language: '口语语言代码，如 en。'
     },
     neutts: {
-      device: 'Local inference device for NeuTTS.'
+      device: 'NeuTTS 本地推理设备。'
     }
   },
   stt: {
-    enabled: 'Enable local or provider-backed speech transcription.',
-    echoTranscripts: 'Post the raw 🎙️ transcript of voice messages back to the chat.',
+    enabled: '启用本地或提供商语音转写。',
+    echoTranscripts: '将语音消息的原始 🎙️ 转写文本发回对话。',
     elevenlabs: {
-      languageCode: 'Optional ISO-639-3 language code. Blank lets ElevenLabs auto-detect.'
+      languageCode: '可选 ISO-639-3 语言代码。留空由 ElevenLabs 自动检测。'
     }
   },
   updates: {
     nonInteractiveLocalChanges:
-      'When Hermes updates itself from the app (no terminal prompt), keep local source edits (stash) or throw them away (discard). Terminal updates always ask.'
+      'Hermes 从应用内自更新时（无终端提示），保留本地源码改动（stash）还是丢弃（discard）。终端更新始终会询问。'
   }
 })
 
@@ -505,25 +505,25 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
 export const SECTIONS: DesktopConfigSection[] = [
   {
     id: 'model',
-    label: 'Model',
+    label: '模型',
     icon: Box,
     keys: ['model_context_length', 'fallback_providers']
   },
   {
     id: 'chat',
-    label: 'Chat',
+    label: '聊天',
     icon: MessageCircle,
     keys: ['display.personality', 'timezone', 'display.show_reasoning', 'agent.image_input_mode']
   },
   {
     id: 'appearance',
-    label: 'Appearance',
+    label: '外观',
     icon: Palette,
     keys: []
   },
   {
     id: 'workspace',
-    label: 'Workspace',
+    label: '工作区',
     icon: Monitor,
     keys: [
       'terminal.cwd',
@@ -535,7 +535,7 @@ export const SECTIONS: DesktopConfigSection[] = [
   },
   {
     id: 'safety',
-    label: 'Safety',
+    label: '安全',
     icon: Lock,
     keys: [
       'approvals.mode',
@@ -551,7 +551,7 @@ export const SECTIONS: DesktopConfigSection[] = [
   },
   {
     id: 'memory',
-    label: 'Memory & Context',
+    label: '记忆与上下文',
     icon: Brain,
     keys: [
       'memory.memory_enabled',
@@ -568,7 +568,7 @@ export const SECTIONS: DesktopConfigSection[] = [
   },
   {
     id: 'voice',
-    label: 'Voice',
+    label: '语音',
     icon: Mic,
     keys: [
       'tts.provider',
@@ -609,7 +609,7 @@ export const SECTIONS: DesktopConfigSection[] = [
   },
   {
     id: 'advanced',
-    label: 'Advanced',
+    label: '高级',
     icon: Wrench,
     keys: [
       'toolsets',
@@ -645,7 +645,7 @@ export interface ModeOption {
 }
 
 export const MODE_OPTIONS: ModeOption[] = [
-  { id: 'light', label: 'Light', icon: Sun },
-  { id: 'dark', label: 'Dark', icon: Moon },
-  { id: 'system', label: 'System', icon: Monitor }
+  { id: 'light', label: '浅色', icon: Sun },
+  { id: 'dark', label: '深色', icon: Moon },
+  { id: 'system', label: '跟随系统', icon: Monitor }
 ]

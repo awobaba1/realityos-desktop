@@ -707,7 +707,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
           notify({
             id: `gateway-error:${errorMessage}`,
             kind: 'error',
-            title: 'RealityOS error',
+            title: 'RealityOS 错误',
             message: errorMessage
           })
         }

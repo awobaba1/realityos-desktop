@@ -24,9 +24,9 @@ export function ReferenceChip({ name, onRemove, src }: ReferenceChipProps) {
         <img alt={name} className="size-4 rounded-md object-cover" src={src} />
       </button>
 
-      <span className="max-w-40 truncate text-[0.64rem] font-medium text-foreground/50">{name || 'Reference'}</span>
+      <span className="max-w-40 truncate text-[0.64rem] font-medium text-foreground/50">{name || '引用'}</span>
       <button
-        aria-label="Remove reference"
+        aria-label="移除引用"
         className="text-(--ui-text-tertiary) transition not-hover:opacity-50"
         onClick={onRemove}
         type="button"

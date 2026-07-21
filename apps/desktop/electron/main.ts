@@ -745,7 +745,7 @@ if (IS_WINDOWS) {
 app.setAboutPanelOptions({
   applicationName: APP_NAME,
   applicationVersion: resolveHermesVersion(),
-  copyright: 'Copyright © 2026 RealityOS'
+  copyright: '版权所有 © 2026 RealityOS'
 })
 
 // Custom scheme for streaming local media (video/audio) into the renderer.
@@ -795,11 +795,11 @@ function registerMediaProtocol() {
 
       ;({ resolvedPath } = await resolveReadableFileForIpc(filePath, { purpose: 'Media stream' }))
     } catch {
-      return new Response('Media not found', { status: 404 })
+      return new Response('找不到媒体', { status: 404 })
     }
 
     if (!STREAMABLE_MEDIA_EXTS.has(path.extname(resolvedPath).toLowerCase())) {
-      return new Response('Unsupported media type', { status: 415 })
+      return new Response('不支持的媒体类型', { status: 415 })
     }
 
     // Delegate to Electron's net stack on a file:// URL — it resolves the
@@ -867,7 +867,7 @@ let nativeThemeListenerInstalled = false
 let bootProgressState = {
   error: null,
   fakeMode: BOOT_FAKE_MODE,
-  message: 'Waiting to start RealityOS backend',
+  message: '正在启动 RealityOS 后端',
   phase: 'idle',
   progress: 0,
   running: false,
@@ -1394,7 +1394,7 @@ async function waitForUpdateToFinish() {
   while (marker && Date.now() < deadline) {
     await advanceBootProgress(
       'backend.update-wait',
-      'An update is finishing — RealityOS will start automatically when it completes…',
+      '更新即将完成 — RealityOS 将在更新完成后自动启动…',
       12
     )
     await new Promise(r => setTimeout(r, UPDATE_WAIT_POLL_MS))
@@ -2058,7 +2058,7 @@ async function checkUpdates() {
     return {
       supported: false,
       reason: 'not-a-git-checkout',
-      message: `${updateRoot} isn't a git checkout — desktop self-update only runs against a source install.`,
+      message: `${updateRoot} 不是 git 检出 — 桌面自更新仅对源码安装生效。`,
       hermesRoot: updateRoot,
       branch
     }
@@ -2427,7 +2427,7 @@ async function releaseBackendLock(updateRoot, tag) {
 // only this apply action changed.
 async function applyUpdates(opts = {}) {
   if (updateInFlight) {
-    throw new Error('An update is already in progress.')
+    throw new Error('更新已在进行中。')
   }
 
   updateInFlight = true
@@ -2482,7 +2482,7 @@ async function applyUpdates(opts = {}) {
     emitUpdateProgress({
       stage: 'restart',
       message:
-        'Updating RealityOS — this window will close and the updater will open. Don’t reopen RealityOS yourself; it restarts automatically when the update finishes.',
+        '正在更新 RealityOS — 此窗口将关闭并打开更新程序。请不要自行重新打开 RealityOS；更新完成后它会自动重启。',
       percent: 100
     })
     repairMacUpdaterHelper(updater)
@@ -2512,8 +2512,8 @@ async function applyUpdates(opts = {}) {
       // user close the holder and retry. Restart our own backend so the app
       // keeps working after the failed attempt.
       const message =
-        'Update aborted: another process is holding the RealityOS install open ' +
-        '(a second RealityOS window or a terminal running hermes?). Close it and retry.'
+        '更新已中止：另一个进程正在占用 RealityOS 安装 ' +
+        '（可能是第二个 RealityOS 窗口或运行 hermes 的终端？）。请关闭它后重试。'
 
       emitUpdateProgress({ stage: 'error', message, percent: null })
       startHermes().catch(() => {})
@@ -2765,7 +2765,7 @@ async function applyUpdatesPosixInApp(opts: any) {
     // best effort
   }
 
-  emitUpdateProgress({ stage: 'update', message: 'Updating Hermes (git + dependencies)…', percent: 10 })
+  emitUpdateProgress({ stage: 'update', message: '正在更新 Hermes（git + 依赖）…', percent: 10 })
 
   const updated = (await runStreamedUpdate(hermes, ['update', '--yes', ...branchArgs], {
     cwd: updateRoot,
@@ -2774,19 +2774,19 @@ async function applyUpdatesPosixInApp(opts: any) {
   })) as any
 
   if (updated.code !== 0) {
-    emitUpdateProgress({ stage: 'error', message: 'hermes update failed.', error: updated.error || 'update-failed' })
+    emitUpdateProgress({ stage: 'error', message: 'hermes update 失败。', error: updated.error || 'update-failed' })
 
     return { ok: false, error: 'hermes update failed' }
   }
 
-  emitUpdateProgress({ stage: 'rebuild', message: 'Rebuilding the desktop app…', percent: 60 })
+  emitUpdateProgress({ stage: 'rebuild', message: '正在重新构建桌面应用…', percent: 60 })
 
   // Retry-once: a first rebuild can fail on a still-settling tree or a
   // self-healed (network-blocked) Electron download; a second run builds clean
   // off the healed dist so we reach the swap+relaunch below instead of bailing.
   const rebuilt = await runRebuildWithRetry(attempt => {
     if (attempt > 0) {
-      emitUpdateProgress({ stage: 'rebuild', message: 'Retrying the desktop rebuild…', percent: 60 })
+      emitUpdateProgress({ stage: 'rebuild', message: '正在重试桌面重新构建…', percent: 60 })
     }
 
     return runStreamedUpdate(hermes, ['desktop', '--build-only'], { cwd: updateRoot, env, stage: 'rebuild' })
@@ -2795,7 +2795,7 @@ async function applyUpdatesPosixInApp(opts: any) {
   if (rebuilt.code !== 0) {
     emitUpdateProgress({
       stage: 'error',
-      message: 'Backend updated, but the desktop rebuild failed. Restart Hermes to retry.',
+      message: '后端已更新，但桌面重新构建失败。请重启 Hermes 以重试。',
       error: rebuilt.error || 'rebuild-failed'
     })
 
@@ -2842,7 +2842,7 @@ async function applyUpdatesPosixInApp(opts: any) {
     const outcome = decideRelaunchOutcome({ underUnpacked, sandboxOk })
 
     if (outcome === 'relaunch') {
-      emitUpdateProgress({ stage: 'restart', message: 'Restarting Hermes…', percent: 100 })
+      emitUpdateProgress({ stage: 'restart', message: '正在重启 Hermes…', percent: 100 })
       // Preserve launch context across the re-exec: replay the original args
       // (filtered of Electron internals) and the env/cwd that define which
       // backend/profile/root this instance talks to. Without this the
@@ -2880,7 +2880,7 @@ async function applyUpdatesPosixInApp(opts: any) {
           backendUpdated: true,
           guiUpdated: false,
           manualRestart: true,
-          message: 'Backend updated. Quit and reopen Hermes to load the new version.'
+          message: '后端已更新。请退出并重新打开 Hermes 以加载新版本。'
         }
       }
     }
@@ -2889,8 +2889,8 @@ async function applyUpdatesPosixInApp(opts: any) {
       emitUpdateProgress({
         stage: 'guiSkew',
         message:
-          'Backend updated, but the desktop app package was not changed. ' +
-          'Update or reinstall the Hermes desktop app to match.',
+          '后端已更新，但桌面应用包未更改。' +
+          '请更新或重新安装 Hermes 桌面应用以保持一致。',
         percent: 100
       })
       rememberLog(
@@ -2915,8 +2915,8 @@ async function applyUpdatesPosixInApp(opts: any) {
       manualRestart: true,
       sandboxBlocked: true,
       message:
-        'Backend updated. The rebuilt app can’t relaunch automatically ' +
-        '(sandbox helper needs root). Quit and reopen Hermes to finish.'
+        '后端已更新。重新构建的应用无法自动重启 ' +
+        '（sandbox 辅助程序需要 root 权限）。请退出并重新打开 Hermes 以完成。'
     }
   }
 
@@ -2932,14 +2932,14 @@ async function applyUpdatesPosixInApp(opts: any) {
   if (!rebuiltApp || !targetApp) {
     emitUpdateProgress({
       stage: 'done',
-      message: 'Backend updated. Restart Hermes to load the new version.',
+      message: '后端已更新。请重启 Hermes 以加载新版本。',
       percent: 100
     })
 
     return { ok: true, backendUpdated: true, rebuiltApp: rebuiltApp || null }
   }
 
-  emitUpdateProgress({ stage: 'restart', message: 'Installing the updated app and restarting…', percent: 95 })
+  emitUpdateProgress({ stage: 'restart', message: '正在安装已更新的应用并重启…', percent: 95 })
 
   // Detached swapper: wait for THIS process to exit (so the bundle is free),
   // ditto the rebuilt app over the running one, clear quarantine, relaunch.
@@ -2971,7 +2971,7 @@ fi
   } catch (err) {
     emitUpdateProgress({
       stage: 'done',
-      message: 'Backend + app updated. Restart Hermes to load the new version.',
+      message: '后端和应用均已更新。请重启 Hermes 以加载新版本。',
       percent: 100
     })
     rememberLog(`[updates] could not write swap script: ${err.message}; rebuilt app at ${rebuiltApp}`)
@@ -3277,7 +3277,7 @@ function createActiveBackend(backendArgs) {
 
   return {
     kind: 'python',
-    label: `Hermes at ${ACTIVE_HERMES_ROOT}`,
+    label: `Hermes 位于 ${ACTIVE_HERMES_ROOT}`,
     command,
     args: ['-m', 'hermes_cli.main', ...backendArgs],
     env: buildDesktopBackendEnv({
@@ -3297,7 +3297,7 @@ function resolveHermesBackend(backendArgs) {
   const overrideRoot = process.env.HERMES_DESKTOP_HERMES_ROOT && path.resolve(process.env.HERMES_DESKTOP_HERMES_ROOT)
 
   if (overrideRoot && isHermesSourceRoot(overrideRoot)) {
-    const backend = createPythonBackend(overrideRoot, `Hermes source at ${overrideRoot}`, backendArgs)
+    const backend = createPythonBackend(overrideRoot, `Hermes 源码位于 ${overrideRoot}`, backendArgs)
 
     if (backend) {
       return backend
@@ -3309,7 +3309,7 @@ function resolveHermesBackend(backendArgs) {
   //    installed `hermes` on PATH so local Python edits are actually exercised.
   //    (In dev with no checkout, SOURCE_REPO_ROOT won't pass isHermesSourceRoot.)
   if (!IS_PACKAGED && isHermesSourceRoot(SOURCE_REPO_ROOT)) {
-    const backend = createPythonBackend(SOURCE_REPO_ROOT, `Hermes source at ${SOURCE_REPO_ROOT}`, backendArgs)
+    const backend = createPythonBackend(SOURCE_REPO_ROOT, `Hermes 源码位于 ${SOURCE_REPO_ROOT}`, backendArgs)
 
     if (backend) {
       return backend
@@ -3375,7 +3375,7 @@ function resolveHermesBackend(backendArgs) {
       if (verifyHermesCli(hermesCommand, { shell: shellForProbe })) {
         return (
           unwrapWindowsVenvHermesCommand(hermesCommand, backendArgs) || {
-            label: `existing Hermes CLI at ${hermesCommand}`,
+            label: `现有的 Hermes CLI 位于 ${hermesCommand}`,
             command: hermesCommand,
             args: backendArgs,
             bootstrap: false,
@@ -3409,7 +3409,7 @@ function resolveHermesBackend(backendArgs) {
     if (canImportHermesCli(python)) {
       return {
         kind: 'python',
-        label: `installed hermes_cli module via ${python}`,
+        label: `已通过 ${python} 安装 hermes_cli 模块`,
         command: python,
         args: ['-m', 'hermes_cli.main', ...backendArgs],
         bootstrap: false,
@@ -3433,7 +3433,7 @@ function resolveHermesBackend(backendArgs) {
   //    is a recoverable state the GUI can drive through.
   return {
     kind: 'bootstrap-needed',
-    label: 'Hermes Agent not installed yet; bootstrap required',
+    label: 'Hermes Agent 尚未安装，需要引导启动',
     command: null,
     args: backendArgs,
     bootstrap: true,
@@ -3449,7 +3449,7 @@ function resolveHermesBackend(backendArgs) {
 
 async function ensureRuntime(backend) {
   if (!backend.bootstrap) {
-    await advanceBootProgress('runtime.external', `Using ${backend.label}`, 32)
+    await advanceBootProgress('runtime.external', `使用 ${backend.label}`, 32)
 
     return backend
   }
@@ -3525,7 +3525,7 @@ async function ensureRuntime(backend) {
     bootstrapAbortController = null
 
     if (bootstrapResult.cancelled) {
-      const cancelledError = new Error('Hermes install was cancelled.') as any
+      const cancelledError = new Error('Hermes 安装已取消。') as any
       cancelledError.isBootstrapFailure = true
       cancelledError.bootstrapCancelled = true
       bootstrapFailure = cancelledError
@@ -3563,8 +3563,8 @@ async function ensureRuntime(backend) {
   // attests they ran successfully).
   if (!isHermesSourceRoot(ACTIVE_HERMES_ROOT)) {
     throw new Error(
-      `Hermes install at ${ACTIVE_HERMES_ROOT} is missing or incomplete. ` +
-        'Reinstall via the desktop installer or scripts/install.ps1.'
+      `位于 ${ACTIVE_HERMES_ROOT} 的 Hermes 安装缺失或不完整。` +
+        '请通过桌面安装程序或 scripts/install.ps1 重新安装。'
     )
   }
 
@@ -3576,10 +3576,10 @@ async function ensureRuntime(backend) {
   // here via an external `hermes` on PATH, this check still helps.
   if (IS_WINDOWS && !findGitBash()) {
     throw new Error(
-      'Git for Windows is required for Hermes on Windows (provides Git Bash, ' +
-        "which the agent's terminal tool uses). Install it from " +
-        'https://git-scm.com/download/win or run `winget install -e --id Git.Git`, ' +
-        'then relaunch Hermes.'
+      '在 Windows 上运行 Hermes 需要 Git for Windows（提供 Git Bash，' +
+        "agent 的终端工具会用到它）。请从 " +
+        'https://git-scm.com/download/win 安装，或运行 `winget install -e --id Git.Git`，' +
+        '然后重新启动 Hermes。'
     )
   }
 
@@ -3594,15 +3594,15 @@ async function ensureRuntime(backend) {
     // install.ps1 succeeds. If we hit this, the user (or a deleted venv)
     // broke the invariant; tell them to re-run the install.
     throw new Error(
-      `Hermes venv missing at ${VENV_ROOT}. Re-run the desktop installer or ` + '`scripts/install.ps1` to rebuild it.'
+      `在 ${VENV_ROOT} 找不到 Hermes venv。请重新运行桌面安装程序或 ` + '`scripts/install.ps1` 来重建它。'
     )
   }
 
   backend.command = getVenvPython(VENV_ROOT)
-  backend.label = `Hermes at ${ACTIVE_HERMES_ROOT} (venv: ${VENV_ROOT})`
+  backend.label = `Hermes 位于 ${ACTIVE_HERMES_ROOT}（venv：${VENV_ROOT}）`
   updateBootProgress({
     phase: 'runtime.ready',
-    message: 'Hermes runtime is ready',
+    message: 'Hermes 运行时已就绪',
     progress: 82,
     running: true,
     error: null
@@ -3645,7 +3645,7 @@ function fetchJson(url, token, options: any = {}) {
     const timeoutMs = resolveTimeoutMs(options.timeoutMs, DEFAULT_FETCH_TIMEOUT_MS)
 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      reject(new Error(`Unsupported Hermes backend URL protocol: ${parsed.protocol}`))
+      reject(new Error(`不支持的 Hermes 后端 URL 协议：${parsed.protocol}`))
 
       return
     }
@@ -3700,7 +3700,7 @@ function fetchJson(url, token, options: any = {}) {
           try {
             resolve(JSON.parse(text))
           } catch {
-            reject(new Error(`Invalid JSON from ${url} (status ${res.statusCode}): ${text.slice(0, 200)}`))
+            reject(new Error(`从 ${url} 获取的 JSON 无效（状态码 ${res.statusCode}）：${text.slice(0, 200)}`))
           }
         })
       }
@@ -3708,7 +3708,7 @@ function fetchJson(url, token, options: any = {}) {
 
     req.on('error', reject)
     req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`Timed out connecting to Hermes backend after ${timeoutMs}ms`))
+      req.destroy(new Error(`连接 Hermes 后端超时（${timeoutMs} 毫秒）`))
     })
 
     if (body) {
@@ -3732,7 +3732,7 @@ function fetchPublicJson(url, options: any = {}) {
     try {
       parsed = new URL(url)
     } catch (error) {
-      reject(new Error(`Invalid URL: ${error.message}`))
+      reject(new Error(`无效的 URL：${error.message}`))
 
       return
     }
@@ -3741,7 +3741,7 @@ function fetchPublicJson(url, options: any = {}) {
     const timeoutMs = resolveTimeoutMs(options.timeoutMs, DEFAULT_FETCH_TIMEOUT_MS)
 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      reject(new Error(`Unsupported Hermes backend URL protocol: ${parsed.protocol}`))
+      reject(new Error(`不支持的 Hermes 后端 URL 协议：${parsed.protocol}`))
 
       return
     }
@@ -3790,7 +3790,7 @@ function fetchPublicJson(url, options: any = {}) {
           try {
             resolve(JSON.parse(text))
           } catch {
-            reject(new Error(`Invalid JSON from ${url} (status ${res.statusCode}): ${text.slice(0, 200)}`))
+            reject(new Error(`从 ${url} 获取的 JSON 无效（状态码 ${res.statusCode}）：${text.slice(0, 200)}`))
           }
         })
       }
@@ -3798,7 +3798,7 @@ function fetchPublicJson(url, options: any = {}) {
 
     req.on('error', reject)
     req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`Timed out connecting to Hermes backend after ${timeoutMs}ms`))
+      req.destroy(new Error(`连接 Hermes 后端超时（${timeoutMs} 毫秒）`))
     })
 
     if (body) {
@@ -4152,14 +4152,14 @@ function fetchLinkTitle(rawUrl) {
 
 async function resourceBufferFromUrl(rawUrl) {
   if (!rawUrl) {
-    throw new Error('Missing URL')
+    throw new Error('缺少 URL')
   }
 
   if (rawUrl.startsWith('data:')) {
     const match = rawUrl.match(/^data:([^;,]+)?(;base64)?,(.*)$/s)
 
     if (!match) {
-      throw new Error('Invalid data URL')
+      throw new Error('无效的 data URL')
     }
 
     const mimeType = match[1] || 'application/octet-stream'
@@ -4182,7 +4182,7 @@ async function resourceBufferFromUrl(rawUrl) {
   return new Promise((resolve, reject) => {
     const req = client.get(parsed, res => {
       if ((res.statusCode || 500) >= 400) {
-        reject(new Error(`Failed to fetch ${rawUrl}: ${res.statusCode}`))
+        reject(new Error(`获取 ${rawUrl} 失败：${res.statusCode}`))
         res.resume()
 
         return
@@ -4208,7 +4208,7 @@ async function copyImageFromUrl(rawUrl) {
   const image = nativeImage.createFromBuffer(buffer)
 
   if (image.isEmpty()) {
-    throw new Error('Could not read image')
+    throw new Error('无法读取图像')
   }
 
   clipboard.writeImage(image)
@@ -4219,7 +4219,7 @@ async function saveImageFromUrl(rawUrl) {
   const fallbackName = filenameFromUrl(rawUrl, `image${extensionForMimeType(mimeType) || '.png'}`)
 
   const result = await dialog.showSaveDialog(mainWindow, {
-    title: 'Save Image',
+    title: '保存图像',
     defaultPath: fallbackName
   })
 
@@ -4447,7 +4447,7 @@ async function waitForHermes(baseUrl, token) {
     }
   }
 
-  throw new Error(`Hermes backend did not become ready: ${lastError?.message || 'timeout'}`)
+  throw new Error(`Hermes 后端未能就绪：${lastError?.message || 'timeout'}`)
 }
 
 function getWindowButtonPosition() {
@@ -4589,7 +4589,7 @@ function buildApplicationMenu() {
   const template = []
 
   const checkForUpdatesItem = {
-    label: 'Check for Updates…',
+    label: '检查更新…',
     click: () => sendOpenUpdatesRequested()
   }
 
@@ -4597,22 +4597,22 @@ function buildApplicationMenu() {
     template.push({
       label: APP_NAME,
       submenu: [
-        { label: `About ${APP_NAME}`, click: () => showAboutPanelFresh() },
+        { label: `关于 ${APP_NAME}`, click: () => showAboutPanelFresh() },
         checkForUpdatesItem,
         { type: 'separator' },
-        { role: 'services' },
+        { role: 'services', label: '服务' },
         { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
+        { role: 'hide', label: `隐藏 ${APP_NAME}` },
+        { role: 'hideOthers', label: '隐藏其他' },
+        { role: 'unhide', label: '显示全部' },
         { type: 'separator' },
-        { role: 'quit' }
+        { role: 'quit', label: `退出 ${APP_NAME}` }
       ]
     })
   }
 
   template.push({
-    label: 'File',
+    label: '文件',
     submenu: [
       IS_MAC
         ? {
@@ -4623,40 +4623,40 @@ function buildApplicationMenu() {
             // renderer's close-active-tab. Clicking the item still closes the tab
             // (or window) via the same request.
             click: () => sendClosePreviewRequested(),
-            label: 'Close'
+            label: '关闭'
           }
-        : { role: 'quit' }
+        : { role: 'quit', label: '退出' }
     ]
   })
   template.push({
-    label: 'Edit',
+    label: '编辑',
     submenu: [
-      { role: 'undo' },
-      { role: 'redo' },
+      { role: 'undo', label: '撤销' },
+      { role: 'redo', label: '重做' },
       { type: 'separator' },
-      { role: 'cut' },
-      { role: 'copy' },
-      { role: 'paste' },
-      { role: 'delete' },
-      { role: 'selectAll' }
+      { role: 'cut', label: '剪切' },
+      { role: 'copy', label: '复制' },
+      { role: 'paste', label: '粘贴' },
+      { role: 'delete', label: '删除' },
+      { role: 'selectAll', label: '全选' }
     ]
   })
   template.push({
-    label: 'View',
+    label: '视图',
     submenu: [
-      { role: 'reload' },
-      { role: 'forceReload' },
-      { role: 'toggleDevTools' },
+      { role: 'reload', label: '重新加载' },
+      { role: 'forceReload', label: '强制重新加载' },
+      { role: 'toggleDevTools', label: '切换开发者工具' },
       { type: 'separator' },
       {
-        label: 'Actual Size',
+        label: '实际大小',
         accelerator: 'CommandOrControl+0',
         click: () => {
           setAndPersistZoomLevel(mainWindow, 0)
         }
       },
       {
-        label: 'Zoom In',
+        label: '放大',
         accelerator: 'CommandOrControl+Plus',
         click: () => {
           if (mainWindow && !mainWindow.isDestroyed()) {
@@ -4665,7 +4665,7 @@ function buildApplicationMenu() {
         }
       },
       {
-        label: 'Zoom Out',
+        label: '缩小',
         accelerator: 'CommandOrControl+-',
         click: () => {
           if (mainWindow && !mainWindow.isDestroyed()) {
@@ -4674,17 +4674,24 @@ function buildApplicationMenu() {
         }
       },
       { type: 'separator' },
-      { role: 'togglefullscreen' }
+      { role: 'togglefullscreen', label: '进入全屏幕' }
     ]
   })
   template.push({
-    label: 'Window',
+    label: '窗口',
     submenu: IS_MAC
-      ? [{ role: 'minimize' }, { role: 'zoom' }, { role: 'front' }]
-      : [{ role: 'minimize' }, { role: 'close' }]
+      ? [
+          { role: 'minimize', label: '最小化' },
+          { role: 'zoom', label: '缩放' },
+          { role: 'front', label: '将全部置于顶层' }
+        ]
+      : [
+          { role: 'minimize', label: '最小化' },
+          { role: 'close', label: '关闭' }
+        ]
   })
   template.push({
-    label: 'Help',
+    label: '帮助',
     role: 'help',
     submenu: [checkForUpdatesItem]
   })
@@ -4830,7 +4837,7 @@ function installContextMenu(window) {
     if (hasImage) {
       template.push(
         {
-          label: 'Open Image',
+          label: '打开图像',
           click: () => {
             if (params.srcURL && !params.srcURL.startsWith('data:')) {
               openExternalUrl(params.srcURL)
@@ -4839,17 +4846,17 @@ function installContextMenu(window) {
           enabled: !params.srcURL.startsWith('data:')
         },
         {
-          label: 'Copy Image',
+          label: '复制图像',
           click: () => {
             void copyImageFromUrl(params.srcURL).catch(error => rememberLog(`Copy image failed: ${error.message}`))
           }
         },
         {
-          label: 'Copy Image Address',
+          label: '复制图像地址',
           click: () => clipboard.writeText(params.srcURL)
         },
         {
-          label: 'Save Image As...',
+          label: '图像另存为...',
           click: () => {
             void saveImageFromUrl(params.srcURL).catch(error => rememberLog(`Save image failed: ${error.message}`))
           }
@@ -4864,11 +4871,11 @@ function installContextMenu(window) {
 
       template.push(
         {
-          label: 'Open Link',
+          label: '打开链接',
           click: () => openExternalUrl(params.linkURL)
         },
         {
-          label: 'Copy Link',
+          label: '复制链接',
           click: () => clipboard.writeText(params.linkURL)
         }
       )
@@ -4893,7 +4900,7 @@ function installContextMenu(window) {
 
       template.push({ type: 'separator' })
       template.push({
-        label: 'Add to dictionary',
+        label: '添加到词典',
         click: () => window.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
       })
     }
@@ -5125,7 +5132,7 @@ async function clearOauthSession(baseUrl) {
 function openOauthLoginWindow(baseUrl, { silent = false } = {}) {
   return new Promise((resolve, reject) => {
     if (!app.isReady()) {
-      reject(new Error('Desktop is not ready to start an OAuth login.'))
+      reject(new Error('桌面尚未准备好启动 OAuth 登录。'))
 
       return
     }
@@ -5133,7 +5140,7 @@ function openOauthLoginWindow(baseUrl, { silent = false } = {}) {
     const sess = getOauthSession()
 
     if (!sess) {
-      reject(new Error('OAuth session partition is unavailable.'))
+      reject(new Error('OAuth 会话分区不可用。'))
 
       return
     }
@@ -5187,7 +5194,7 @@ function openOauthLoginWindow(baseUrl, { silent = false } = {}) {
       win = new BrowserWindow({
         width: 520,
         height: 720,
-        title: silent ? 'Connecting to RealityOS Cloud agent…' : 'Sign in to RealityOS gateway',
+        title: silent ? '正在连接 RealityOS 云端代理…' : '登录 RealityOS 网关',
         autoHideMenuBar: true,
         // Silent cascade: start HIDDEN. The auto-SSO 302 chain completes in
         // well under a second, so the window normally never needs to show. We
@@ -5236,7 +5243,7 @@ function openOauthLoginWindow(baseUrl, { silent = false } = {}) {
 
     win.on('closed', () => {
       if (!settled) {
-        finish(new Error('Login window closed before authentication completed.'))
+        finish(new Error('登录窗口在认证完成前已关闭。'))
       }
     })
 
@@ -5262,7 +5269,7 @@ function fetchJsonViaOauthSession(url, options: any = {}) {
     const sess = getOauthSession()
 
     if (!sess) {
-      reject(new Error('OAuth session partition is unavailable.'))
+      reject(new Error('OAuth 会话分区不可用。'))
 
       return
     }
@@ -5272,13 +5279,13 @@ function fetchJsonViaOauthSession(url, options: any = {}) {
     try {
       parsed = new URL(url)
     } catch (error) {
-      reject(new Error(`Invalid URL: ${error.message}`))
+      reject(new Error(`无效的 URL：${error.message}`))
 
       return
     }
 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      reject(new Error(`Unsupported Hermes backend URL protocol: ${parsed.protocol}`))
+      reject(new Error(`不支持的 Hermes 后端 URL 协议：${parsed.protocol}`))
 
       return
     }
@@ -5307,7 +5314,7 @@ function fetchJsonViaOauthSession(url, options: any = {}) {
         // already finished
       }
 
-      reject(new Error(`Timed out connecting to Hermes backend after ${timeoutMs}ms`))
+      reject(new Error(`连接 Hermes 后端超时（${timeoutMs} 毫秒）`))
     }, timeoutMs)
 
     request.on('response', res => {
@@ -5340,7 +5347,7 @@ function fetchJsonViaOauthSession(url, options: any = {}) {
         const contentType = String(res.headers['content-type'] || res.headers['Content-Type'] || '')
 
         if (looksHtml || contentType.includes('text/html')) {
-          reject(new Error(`Expected JSON from ${url} but got HTML (status ${statusCode}).`))
+          reject(new Error(`期望从 ${url} 获取 JSON，但收到 HTML（状态码 ${statusCode}）。`))
 
           return
         }
@@ -5348,7 +5355,7 @@ function fetchJsonViaOauthSession(url, options: any = {}) {
         try {
           resolve(JSON.parse(text))
         } catch {
-          reject(new Error(`Invalid JSON from ${url} (status ${statusCode}): ${text.slice(0, 200)}`))
+          reject(new Error(`从 ${url} 获取的 JSON 无效（状态码 ${statusCode}）：${text.slice(0, 200)}`))
         }
       })
     })
@@ -5381,7 +5388,7 @@ async function mintGatewayWsTicket(baseUrl) {
   const ticket = body?.ticket
 
   if (!ticket || typeof ticket !== 'string') {
-    throw new Error('Gateway did not return a WS ticket.')
+    throw new Error('网关未返回 WS 票据。')
   }
 
   return ticket
@@ -5478,7 +5485,7 @@ function openPortalLoginWindow() {
 
   return new Promise((resolve, reject) => {
     if (!app.isReady()) {
-      reject(new Error('Desktop is not ready to start a RealityOS Cloud sign-in.'))
+      reject(new Error('桌面尚未准备好启动 RealityOS 云端登录。'))
 
       return
     }
@@ -5486,7 +5493,7 @@ function openPortalLoginWindow() {
     const sess = getOauthSession()
 
     if (!sess) {
-      reject(new Error('OAuth session partition is unavailable.'))
+      reject(new Error('OAuth 会话分区不可用。'))
 
       return
     }
@@ -5536,7 +5543,7 @@ function openPortalLoginWindow() {
       win = new BrowserWindow({
         width: 520,
         height: 720,
-        title: 'Sign in to RealityOS Cloud',
+        title: '登录 RealityOS 云端',
         autoHideMenuBar: true,
         webPreferences: {
           contextIsolation: true,
@@ -5559,7 +5566,7 @@ function openPortalLoginWindow() {
 
     win.on('closed', () => {
       if (!settled) {
-        finish(new Error('Sign-in window closed before authentication completed.'))
+        finish(new Error('登录窗口在认证完成前已关闭。'))
       }
     })
 
@@ -5710,7 +5717,7 @@ async function cloudAgentSilentSignIn(dashboardUrl) {
   // interactive prompt rather than a silent cascade. Discovery already gates on
   // this, but a selection can arrive after the session lapsed.
   if (!(await hasLivePortalSession())) {
-    const err = new Error('Your RealityOS Cloud session has expired. Sign in to RealityOS Cloud again.') as any
+    const err = new Error('您的 RealityOS 云端会话已过期。请重新登录 RealityOS 云端。') as any
     err.needsCloudLogin = true
     throw err
   }
@@ -5880,7 +5887,7 @@ function writeActiveDesktopProfile(name) {
   const value = typeof name === 'string' ? name.trim() : ''
 
   if (value && value !== 'default' && !PROFILE_NAME_RE.test(value)) {
-    throw new Error(`Invalid profile name: ${value}`)
+    throw new Error(`无效的配置文件名：${value}`)
   }
 
   fs.mkdirSync(path.dirname(DESKTOP_PROFILE_CONFIG_PATH), { recursive: true })
@@ -5949,7 +5956,7 @@ async function sanitizeDesktopConnectionConfig(config = readDesktopConnectionCon
 // block when empty so plain remote connections stay unchanged.
 function buildRemoteBlock(remoteUrl, authMode, token, org?: string) {
   if (authMode !== 'oauth' && !decryptDesktopSecret(token)) {
-    throw new Error('Remote gateway session token is required.')
+    throw new Error('需要远程网关会话令牌。')
   }
 
   const block: { url: string; authMode: string; token: object; org?: string } = {
@@ -6048,8 +6055,8 @@ async function buildRemoteConnection(rawUrl, authMode, token, source) {
     // the authoritative liveness check.
     if (!(await hasLiveOauthSession(baseUrl))) {
       const err = new Error(
-        'Remote RealityOS gateway uses OAuth, but you are not signed in. ' +
-          'Open Settings → Gateway and click "Sign in", or switch back to Local.'
+        '远程 RealityOS 网关使用 OAuth，但您尚未登录。' +
+          '请打开 设置 → 网关 并点击 "登录"，或切换回 本地。'
       ) as any
 
       err.needsOauthLogin = true
@@ -6062,7 +6069,7 @@ async function buildRemoteConnection(rawUrl, authMode, token, source) {
       ticket = await mintGatewayWsTicket(baseUrl)
     } catch (error) {
       const err = new Error(
-        'Your remote gateway session has expired. ' + 'Open Settings → Gateway and click "Sign in" again.'
+        '您的远程网关会话已过期。' + '请打开 设置 → 网关 并再次点击 "登录"。'
       ) as any
 
       err.needsOauthLogin = true
@@ -6083,8 +6090,8 @@ async function buildRemoteConnection(rawUrl, authMode, token, source) {
 
   if (!token) {
     throw new Error(
-      'Remote RealityOS gateway is selected, but no session token is saved. ' +
-        'Open Settings → Gateway and save a token, or switch back to Local.'
+      '已选择远程 RealityOS 网关，但未保存会话令牌。' +
+        '请打开 设置 → 网关 并保存令牌，或切换回 本地。'
     )
   }
 
@@ -6126,8 +6133,8 @@ async function resolveRemoteBackend(profile) {
   if (rawEnvUrl) {
     if (!rawEnvToken) {
       throw new Error(
-        'HERMES_DESKTOP_REMOTE_URL is set but HERMES_DESKTOP_REMOTE_TOKEN is not. ' +
-          'Both must be provided to connect to a remote RealityOS backend.'
+        '已设置 HERMES_DESKTOP_REMOTE_URL 但未设置 HERMES_DESKTOP_REMOTE_TOKEN。' +
+          '连接到远程 RealityOS 后端必须同时提供这两者。'
       )
     }
 
@@ -6313,8 +6320,8 @@ async function testDesktopConnectionConfig(input: any = {}) {
 
     if (!probe.ok) {
       throw new Error(
-        `Reached the gateway over HTTP, but the live WebSocket (/api/ws) connection failed: ${probe.reason} ` +
-          'The HTTP check can pass while the WebSocket is blocked by a proxy, firewall, or gateway auth/origin guard.'
+        `已通过 HTTP 到达网关，但实时 WebSocket（/api/ws）连接失败：${probe.reason} ` +
+          'HTTP 检查可能通过，但 WebSocket 被代理、防火墙或网关认证/来源保护所阻断。'
       )
     }
   }
@@ -6330,7 +6337,7 @@ function resetBootProgressForReconnect() {
   updateBootProgress(
     {
       error: null,
-      message: 'Restarting desktop connection',
+      message: '正在重启桌面连接',
       phase: 'backend.resolve',
       progress: 4,
       running: true
@@ -6621,7 +6628,7 @@ async function spawnPoolBackend(profile, entry) {
 
     if (!ready) {
       rejectStart?.(
-        new Error(`Hermes backend for profile "${profile}" exited before it became ready (${signal || code}).`)
+        new Error(`配置文件 "${profile}" 的 Hermes 后端在就绪前已退出（${signal || code}）。`)
       )
     }
   })
@@ -6641,7 +6648,7 @@ async function spawnPoolBackend(profile, entry) {
 
   const authToken = await adoptServedDashboardToken(baseUrl, token, {
     childAlive: () => child.exitCode === null && !child.killed,
-    label: `Hermes backend for profile "${profile}"`,
+    label: `配置文件 "${profile}" 的 Hermes 后端`,
     rememberLog
   })
 
@@ -6754,7 +6761,7 @@ async function startHermes() {
   let attemptedRemote = primaryBackendIsRemote()
 
   const connectionPromise = (async () => {
-    await advanceBootProgress('backend.resolve', 'Resolving RealityOS backend', 8)
+    await advanceBootProgress('backend.resolve', '正在解析 RealityOS 后端', 8)
     // Resolve for the desktop's primary profile so a per-profile remote
     // override on the active profile is honored (falls back to env / global).
     // Re-read once resolved so the classification tracks the value actually used.
@@ -6762,11 +6769,11 @@ async function startHermes() {
     const remote = await resolveRemoteBackend(primaryProfileKey())
 
     if (remote) {
-      await advanceBootProgress('backend.remote', `Connecting to remote Hermes backend at ${remote.baseUrl}`, 24)
+      await advanceBootProgress('backend.remote', `正在连接位于 ${remote.baseUrl} 的远程 Hermes 后端`, 24)
       await waitForHermes(remote.baseUrl, remote.token)
       updateBootProgress({
         phase: 'backend.ready',
-        message: 'Remote RealityOS backend is ready',
+        message: '远程 RealityOS 后端已就绪',
         progress: 94,
         running: true,
         error: null
@@ -6806,7 +6813,7 @@ async function startHermes() {
       backendArgs.unshift('--profile', activeProfile)
     }
 
-    await advanceBootProgress('backend.runtime', 'Resolving RealityOS runtime', 28)
+    await advanceBootProgress('backend.runtime', '正在解析 RealityOS 运行时', 28)
     const backend = await ensureRuntime(resolveHermesBackend(backendArgs))
     // Route old runtimes (no `serve`) through the legacy `dashboard --no-open`.
     backend.args = getBackendArgsForRuntime(backend)
@@ -6814,7 +6821,7 @@ async function startHermes() {
     const webDist = resolveWebDist()
     const readyFile = backend.readyFile ? makeDashboardReadyFile() : null
 
-    await advanceBootProgress('backend.spawn', `Starting Hermes backend via ${backend.label}`, 84)
+    await advanceBootProgress('backend.spawn', `正在通过 ${backend.label} 启动 Hermes 后端`, 84)
     rememberLog(`Starting Hermes backend via ${backend.label}`)
 
     const hermesProcess = spawn(
@@ -6851,7 +6858,7 @@ async function startHermes() {
 
     if (!processOwner) {
       stopBackendChild(hermesProcess)
-      throw new Error('RealityOS backend start was superseded by a newer connection attempt.')
+      throw new Error('RealityOS 后端启动已被更新的连接尝试取代。')
     }
 
     hermesProcess.stdout.on('data', rememberLog)
@@ -6866,7 +6873,7 @@ async function startHermes() {
     hermesProcess.once('error', error => {
       if (!backendConnectionState.clearForCurrentProcess(processOwner)) {
         rememberLog(`Ignoring stale Hermes backend error: ${error.message}`)
-        rejectBackendStart?.(new Error('RealityOS backend start was superseded by a newer connection attempt.'))
+        rejectBackendStart?.(new Error('RealityOS 后端启动已被更新的连接尝试取代。'))
 
         return
       }
@@ -6875,7 +6882,7 @@ async function startHermes() {
       updateBootProgress(
         {
           error: error.message,
-          message: `Hermes backend failed to start: ${error.message}`,
+          message: `Hermes 后端启动失败：${error.message}`,
           phase: 'backend.error',
           running: false
         },
@@ -6889,7 +6896,7 @@ async function startHermes() {
         rememberLog(`Ignoring stale Hermes backend exit (${signal || code})`)
 
         if (!backendReady) {
-          rejectBackendStart?.(new Error('RealityOS backend start was superseded by a newer connection attempt.'))
+          rejectBackendStart?.(new Error('RealityOS 后端启动已被更新的连接尝试取代。'))
         }
 
         return
@@ -6917,7 +6924,7 @@ async function startHermes() {
       }
     })
 
-    await advanceBootProgress('backend.port', 'Waiting for RealityOS backend to launch', 86)
+    await advanceBootProgress('backend.port', '正在等待 RealityOS 后端启动', 86)
 
     // Discover the ephemeral port the child bound to
     const port = await Promise.race([
@@ -6930,7 +6937,7 @@ async function startHermes() {
     }
 
     const baseUrl = `http://127.0.0.1:${port}`
-    await advanceBootProgress('backend.wait', 'Waiting for RealityOS backend to become ready', 90)
+    await advanceBootProgress('backend.wait', '正在等待 RealityOS 后端就绪', 90)
     await Promise.race([waitForHermes(baseUrl, token), backendStartFailed])
     backendReady = true
     backendStartFailure = null
@@ -6942,7 +6949,7 @@ async function startHermes() {
 
     updateBootProgress({
       phase: 'backend.ready',
-      message: 'RealityOS backend is ready. Finalizing desktop startup',
+      message: 'RealityOS 后端已就绪。正在完成桌面启动',
       progress: 94,
       running: true,
       error: null
@@ -6977,7 +6984,7 @@ async function startHermes() {
     updateBootProgress(
       {
         error: message,
-        message: `Desktop boot failed: ${message}`,
+        message: `桌面启动失败：${message}`,
         phase: 'backend.error',
         running: false
       },
@@ -7984,7 +7991,7 @@ ipcMain.handle('hermes:api', async (_event, request) => {
     // The OAuth path rides electron.net with JSON headers; multipart isn't
     // wired there. Fail loudly rather than corrupting the upload.
     if (request?.upload) {
-      throw new Error('File uploads are not supported against OAuth-gated remote backends yet.')
+      throw new Error('尚不支持对 OAuth 保护的远程后端上传文件。')
     }
 
     return fetchJsonViaOauthSession(url, {
@@ -8105,7 +8112,7 @@ ipcMain.handle('hermes:selectPaths', async (_event, options: any = {}) => {
   }
 
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: options?.title || 'Add context',
+    title: options?.title || '添加上下文',
     defaultPath: resolvedDefaultPath,
     properties: properties as any,
     filters: Array.isArray(options?.filters) ? options.filters : undefined
@@ -8210,13 +8217,13 @@ ipcMain.on('hermes:translucency', (_event, payload) => {
 
 ipcMain.handle('hermes:openExternal', (_event, url) => {
   if (!openExternalUrl(url)) {
-    throw new Error('Invalid external URL')
+    throw new Error('无效的外部 URL')
   }
 })
 
 ipcMain.handle('hermes:openPreviewInBrowser', async (_event, url) => {
   if (!(await openPreviewInBrowser(url))) {
-    throw new Error('Invalid preview URL')
+    throw new Error('无效的预览 URL')
   }
 })
 
@@ -8239,7 +8246,7 @@ ipcMain.handle('hermes:setting:defaultProjectDir:set', async (_event, dir) => {
     try {
       fs.mkdirSync(next, { recursive: true })
     } catch (error) {
-      throw new Error(`Could not create directory: ${error.message}`)
+      throw new Error(`无法创建目录：${error.message}`)
     }
   }
 
@@ -8250,7 +8257,7 @@ ipcMain.handle('hermes:setting:defaultProjectDir:set', async (_event, dir) => {
 
 ipcMain.handle('hermes:setting:defaultProjectDir:pick', async () => {
   const result = await dialog.showOpenDialog({
-    title: 'Choose default project directory',
+    title: '选择默认项目目录',
     properties: ['openDirectory', 'createDirectory'],
     defaultPath: readDefaultProjectDir() || app.getPath('home')
   })
@@ -8528,7 +8535,7 @@ ipcMain.handle('hermes:fs:rename', async (_event, targetPath, newName) => {
   const name = String(newName || '').trim()
 
   if (!src || !name || name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
-    throw new Error('Invalid rename')
+    throw new Error('无效的重命名')
   }
 
   const dst = path.join(path.dirname(src), name)
@@ -8538,7 +8545,7 @@ ipcMain.handle('hermes:fs:rename', async (_event, targetPath, newName) => {
   }
 
   if (fs.existsSync(dst)) {
-    throw new Error(`"${name}" already exists`)
+    throw new Error(`"${name}" 已存在`)
   }
 
   await fs.promises.rename(src, dst)
@@ -8554,19 +8561,19 @@ ipcMain.handle('hermes:fs:writeText', async (_event, filePath, content) => {
   const raw = String(filePath || '').trim()
 
   if (!raw) {
-    throw new Error('Invalid path')
+    throw new Error('无效的路径')
   }
 
   const text = String(content ?? '')
 
   if (text.length > 1_000_000) {
-    throw new Error('Content too large')
+    throw new Error('内容过大')
   }
 
   const resolved = resolveRequestedPathForIpc(expandUserPath(raw), { purpose: 'Write text file' })
 
   if (!directoryExists(path.dirname(resolved))) {
-    throw new Error('Parent directory does not exist')
+    throw new Error('父目录不存在')
   }
 
   await fs.promises.writeFile(resolved, text, 'utf8')
@@ -8580,7 +8587,7 @@ ipcMain.handle('hermes:fs:trash', async (_event, targetPath) => {
   const target = String(targetPath || '').trim()
 
   if (!target) {
-    throw new Error('Invalid delete')
+    throw new Error('无效的删除')
   }
 
   await shell.trashItem(target)
@@ -8793,7 +8800,7 @@ function showAboutPanelFresh() {
   app.setAboutPanelOptions({
     applicationName: APP_NAME,
     applicationVersion: resolveHermesVersion(),
-    copyright: 'Copyright © 2026 RealityOS'
+    copyright: '版权所有 © 2026 RealityOS'
   })
   app.showAboutPanel()
 }
@@ -8914,7 +8921,7 @@ async function runDesktopUninstall(mode) {
     return {
       ok: false,
       error: 'agent-missing',
-      message: `Can't run the uninstaller: no Hermes agent venv at ${VENV_ROOT}.`
+      message: `无法运行卸载程序：在 ${VENV_ROOT} 找不到 Hermes agent venv。`
     }
   }
 

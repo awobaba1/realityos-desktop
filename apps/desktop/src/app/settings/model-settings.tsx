@@ -944,7 +944,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Select onValueChange={setSelectedMoaPreset} value={selectedMoaPreset || moa.default_preset}>
               <SelectTrigger className={cn('min-w-40', CONTROL_TEXT)}>
-                <SelectValue placeholder="Preset" />
+                <SelectValue placeholder="预设" />
               </SelectTrigger>
               <SelectContent>
                 {Object.keys(moa.presets).map(name => (
@@ -998,7 +998,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
             <Input
               className={cn('w-40', CONTROL_TEXT)}
               onChange={event => setNewMoaPresetName(event.target.value)}
-              placeholder="new preset"
+              placeholder="新预设"
               value={newMoaPresetName}
             />
             <Button

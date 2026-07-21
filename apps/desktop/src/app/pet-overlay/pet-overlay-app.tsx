@@ -394,7 +394,7 @@ export function PetOverlayApp() {
               setComposerOpen(false)
             }
           }}
-          placeholder="Message…"
+          placeholder="消息…"
           ref={inputRef}
           style={{
             background: 'var(--ui-bg-elevated)',
@@ -444,7 +444,7 @@ export function PetOverlayApp() {
               stopPropagation keeps a click from starting a window drag. */}
           {unread && (
             <button
-              aria-label="Open in Hermes"
+              aria-label="在 Hermes 中打开"
               onClick={openApp}
               onPointerDown={e => e.stopPropagation()}
               onPointerUp={e => e.stopPropagation()}
