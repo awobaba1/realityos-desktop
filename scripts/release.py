@@ -2567,6 +2567,14 @@ def main():
 
             # Commit version bump
             add_files = [str(VERSION_FILE), str(PYPROJECT_FILE), str(REPO_ROOT / "uv.lock")]
+            # ADR-V6-078: update_version_files also rewrites apps/desktop/package.json
+            # to keep the Electron app version in lockstep. Omitting it here leaves
+            # the bump uncommitted → desktop-build at the tag ships the stale version
+            # (v2026.7.26 shipped desktop 0.18.3 while Python was 0.18.4). Same
+            # silent-skew class as the uv.lock fix above.
+            desktop_pkg = REPO_ROOT / "apps" / "desktop" / "package.json"
+            if desktop_pkg.exists():
+                add_files.append(str(desktop_pkg))
             if ACP_REGISTRY_MANIFEST.exists():
                 add_files.append(str(ACP_REGISTRY_MANIFEST))
             add_result = git_result("add", *add_files)

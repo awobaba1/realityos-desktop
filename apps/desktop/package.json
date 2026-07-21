@@ -2,7 +2,7 @@
   "name": "realityos-desktop",
   "productName": "RealityOS",
   "private": true,
-  "version": "0.18.3",
+  "version": "0.18.4",
   "description": "Native desktop shell for RealityOS Agent.",
   "author": "RealityOS",
   "type": "module",
