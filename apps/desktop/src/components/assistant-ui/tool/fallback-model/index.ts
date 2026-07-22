@@ -643,7 +643,7 @@ function toolErrorText(part: ToolPart, result: Record<string, unknown>): string 
   const extractedError = extractToolErrorMessage(part.result)
 
   if (part.isError) {
-    return extractedError || (typeof part.result === 'string' && part.result.trim()) || 'Tool returned an error.'
+    return extractedError || (typeof part.result === 'string' && part.result.trim()) || '工具返回了错误。'
   }
 
   if (typeof result.error === 'string' && result.error.trim()) {
@@ -655,7 +655,7 @@ function toolErrorText(part: ToolPart, result: Record<string, unknown>): string 
   }
 
   if (result.success === false || result.ok === false) {
-    return firstStringField(result, ['message', 'reason', 'detail']) || 'Tool returned success=false.'
+    return firstStringField(result, ['message', 'reason', 'detail']) || '工具返回 success=false。'
   }
 
   if (typeof result.status === 'string' && /\b(error|failed|failure)\b/i.test(result.status)) {
@@ -672,7 +672,7 @@ function toolErrorText(part: ToolPart, result: Record<string, unknown>): string 
   if (exit !== null && exit !== 0) {
     const hasOutput = Boolean(firstStringField(result, ['output', 'stdout', 'stderr'])?.trim())
 
-    return hasOutput ? '' : `Command failed with exit code ${exit}.`
+    return hasOutput ? '' : `命令失败，退出码 ${exit}。`
   }
 
   return ''
@@ -854,7 +854,7 @@ function cronjobSubtitle(argsRecord: Record<string, unknown>, resultRecord: Reco
   const jobs = Array.isArray(resultRecord.jobs) ? resultRecord.jobs : null
 
   if (jobs) {
-    return jobs.length ? `${jobs.length} cron job${jobs.length === 1 ? '' : 's'}` : 'No cron jobs'
+    return jobs.length ? `${jobs.length} 个定时任务` : '无定时任务'
   }
 
   const message = firstStringField(resultRecord, ['message'])
@@ -875,7 +875,7 @@ function cronjobDetail(argsRecord: Record<string, unknown>, resultRecord: Record
 
   if (jobs) {
     if (!jobs.length) {
-      return 'No cron jobs scheduled'
+      return '无已排程的定时任务'
     }
 
     return jobs
@@ -917,23 +917,23 @@ function toolSubtitle(
       firstStringField(resultRecord, ['url']) ||
       findFirstUrl(argsRecord, resultRecord)
 
-    return url ? hostnameOf(url) : 'Navigated in browser'
+    return url ? hostnameOf(url) : '已在浏览器中导航'
   }
 
   if (toolName === 'browser_snapshot') {
     const snapshot = firstStringField(resultRecord, ['snapshot'])
 
-    return snapshot ? summarizeBrowserSnapshot(snapshot) : 'Captured a browser accessibility snapshot'
+    return snapshot ? summarizeBrowserSnapshot(snapshot) : '已捕获浏览器无障碍快照'
   }
 
   if (toolName === 'browser_click') {
     const clicked = firstStringField(resultRecord, ['clicked']) || firstStringField(argsRecord, ['ref', 'target'])
 
     if (!clicked) {
-      return 'Clicked on page'
+      return '已点击页面'
     }
 
-    return clicked.startsWith('@') ? `Clicked page element (internal ref ${clicked})` : `Clicked ${clicked}`
+    return clicked.startsWith('@') ? `已点击页面元素（内部引用 ${clicked}）` : `已点击 ${clicked}`
   }
 
   if (toolName === 'browser_fill' || toolName === 'browser_type') {
@@ -942,14 +942,14 @@ function toolSubtitle(
 
     return (
       [field && `Field: ${field}`, value && `Value: ${compactPreview(value, 42)}`].filter(Boolean).join(' · ') ||
-      'Filled page input'
+      '已填写页面输入框'
     )
   }
 
   if (toolName === 'web_search') {
     const query = firstStringField(argsRecord, ['search_term', 'query']) || contextValue(argsRecord)
 
-    return query ? `Query: ${query}` : 'Queried web sources'
+    return query ? `查询：${query}` : '已查询网络来源'
   }
 
   if (toolName === 'terminal' || toolName === 'execute_code') {
@@ -974,7 +974,7 @@ function toolSubtitle(
 
     const command = firstStringField(argsRecord, ['context', 'preview', 'command', 'code']) || contextValue(argsRecord)
 
-    return command ? '' : 'Executed command'
+    return command ? '' : '已执行命令'
   }
 
   if (toolName === 'read_file' || isFileEditTool(toolName)) {
@@ -992,7 +992,7 @@ function toolSubtitle(
       return fallbackDetailText(argsRecord, resultRecord)
     }
 
-    return inlineDiffFromResult(resultRecord) ? 'Changed file' : ''
+    return inlineDiffFromResult(resultRecord) ? '已修改文件' : ''
   }
 
   if (toolName === 'web_extract') {
@@ -1001,7 +1001,7 @@ function toolSubtitle(
       firstStringField(resultRecord, ['url']) ||
       findFirstUrl(argsRecord, resultRecord)
 
-    return url ? hostnameOf(url) : 'Fetched webpage'
+    return url ? hostnameOf(url) : '已抓取网页'
   }
 
   if (toolName === 'cronjob') {
@@ -1022,7 +1022,7 @@ function toolDetailLabel(toolName: string): string {
   }
 
   if (toolName === 'browser_snapshot') {
-    return 'Snapshot summary'
+    return '快照摘要'
   }
 
   return ''
@@ -1403,7 +1403,7 @@ export function buildToolView(part: ToolPart, inlineDiff: string): ToolView {
   return {
     countLabel: resultCount ? formatCountLabel(resultCount) : undefined,
     detail,
-    detailLabel: error ? 'Error details' : toolDetailLabel(part.toolName),
+    detailLabel: error ? '错误详情' : toolDetailLabel(part.toolName),
     durationLabel: durationLabel(resultRecord),
     icon: meta.icon,
     imageUrl: toolImageUrl(argsRecord, resultRecord),

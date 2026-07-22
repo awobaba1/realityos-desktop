@@ -27,7 +27,7 @@ interface ZoomableProps {
  * (see useZoomPan) and optionally copied. Content-agnostic — wrap a diagram,
  * image, or any node.
  */
-export function Zoomable({ children, overlay, onCopy, label = 'Open full view', className }: ZoomableProps) {
+export function Zoomable({ children, overlay, onCopy, label = '打开完整视图', className }: ZoomableProps) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -129,25 +129,25 @@ function Toolbar({
 
   return (
     <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border/70 bg-background/85 p-1 shadow-sm backdrop-blur">
-      <ToolbarButton label="Zoom out" onClick={zoomOut}>
+      <ToolbarButton label="缩小" onClick={zoomOut}>
         <ZoomOut className="size-4" />
       </ToolbarButton>
-      <ToolbarButton label="Reset" onClick={reset}>
+      <ToolbarButton label="还原" onClick={reset}>
         <RefreshCw className="size-4" />
       </ToolbarButton>
-      <ToolbarButton label="Zoom in" onClick={zoomIn}>
+      <ToolbarButton label="放大" onClick={zoomIn}>
         <ZoomIn className="size-4" />
       </ToolbarButton>
       {onCopy && (
         <>
           <Divider />
-          <ToolbarButton label={copied ? 'Copied' : 'Copy'} onClick={() => void copy()}>
+          <ToolbarButton label={copied ? '已复制' : '复制'} onClick={() => void copy()}>
             {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
           </ToolbarButton>
         </>
       )}
       <Divider />
-      <ToolbarButton label="Close" onClick={onClose}>
+      <ToolbarButton label="关闭" onClick={onClose}>
         <X className="size-4" />
       </ToolbarButton>
     </div>

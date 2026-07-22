@@ -56,14 +56,14 @@ export const Thread: FC<{
 
   const confirmRestore = useCallback(() => {
     if (!restoreConfirmTarget || !onRestoreToMessage) {
-      throw new Error('Restore is unavailable for this message.')
+      throw new Error('该消息无法恢复。')
     }
 
     const { messageId, text, userOrdinal } = restoreConfirmTarget
 
     closeRestoreConfirm()
     void Promise.resolve(onRestoreToMessage(messageId, { text, userOrdinal })).catch((error: unknown) => {
-      notifyError(error, 'Restore failed')
+      notifyError(error, '恢复失败')
     })
   }, [closeRestoreConfirm, onRestoreToMessage, restoreConfirmTarget])
 

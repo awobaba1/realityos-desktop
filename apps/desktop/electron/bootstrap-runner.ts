@@ -147,7 +147,7 @@ function downloadInstallScript(commit, destPath) {
               if (res2.statusCode !== 200) {
                 reject(
                   new Error(
-                    `Failed to download ${scriptName}: HTTP ${res2.statusCode} from redirect ${res.headers.location}`
+                    `下载 ${scriptName} 失败：HTTP ${res2.statusCode}（来自重定向 ${res.headers.location}）`
                   )
                 )
 
@@ -177,7 +177,7 @@ function downloadInstallScript(commit, destPath) {
             void 0
           }
 
-          reject(new Error(`Failed to download ${scriptName}: HTTP ${res.statusCode} from ${url}`))
+          reject(new Error(`下载 ${scriptName} 失败：HTTP ${res.statusCode}（来自 ${url}）`))
 
           return
         }
@@ -231,8 +231,8 @@ async function resolveInstallScript({
   // 2. Packaged path: download from GitHub at the pinned commit (1B's stamp).
   if (!installStamp || !installStamp.commit || !STAMP_COMMIT_RE.test(installStamp.commit)) {
     throw new Error(
-      `Cannot resolve ${installScriptName()}: no SOURCE_REPO_ROOT and no install stamp. ` +
-        'This packaged build was produced without a valid build-time stamp.'
+      `无法定位 ${installScriptName()}：缺少 SOURCE_REPO_ROOT 与 install stamp。` +
+        '此打包构建未带有效的构建期 stamp。'
     )
   }
 
@@ -593,7 +593,7 @@ async function fetchManifest({ scriptPath, installerKind, emit, hermesHome, acti
 
   if (result.code !== 0) {
     throw new Error(
-      `${isPosix ? 'install.sh --manifest' : 'install.ps1 -Manifest'} failed: exit ${result.code}\n${result.stderr || result.stdout}`
+      `${isPosix ? 'install.sh --manifest' : 'install.ps1 -Manifest'} 失败：退出码 ${result.code}\n${result.stderr || result.stdout}`
     )
   }
 
@@ -615,7 +615,7 @@ async function fetchManifest({ scriptPath, installerKind, emit, hermesHome, acti
   }
 
   throw new Error(
-    `${isPosix ? 'install.sh --manifest' : 'install.ps1 -Manifest'} produced no parseable JSON payload\n${result.stdout}`
+    `${isPosix ? 'install.sh --manifest' : 'install.ps1 -Manifest'} 未输出可解析的 JSON\n${result.stdout}`
   )
 }
 
@@ -676,7 +676,7 @@ async function runStage({
   const durationMs = Date.now() - startedAt
 
   if (result.killed) {
-    const ev = { type: 'stage', name: stage.name, state: 'failed', durationMs, error: 'cancelled by user' }
+    const ev = { type: 'stage', name: stage.name, state: 'failed', durationMs, error: '已被用户取消' }
     emit(ev)
 
     return ev
@@ -690,7 +690,7 @@ async function runStage({
       name: stage.name,
       state: 'failed',
       durationMs,
-      error: `${isPosix ? 'install.sh --stage' : 'install.ps1 -Stage'} ${stage.name} produced no JSON result frame (exit=${result.code})`,
+      error: `${isPosix ? 'install.sh --stage' : 'install.ps1 -Stage'} ${stage.name} 未输出 JSON 结果帧 (exit=${result.code})`,
       json: null
     }
 
@@ -719,7 +719,7 @@ async function runStage({
     state: 'failed',
     durationMs,
     json,
-    error: json.reason || `exit code ${result.code}`
+    error: json.reason || `退出码 ${result.code}`
   }
 
   emit(ev)
@@ -762,7 +762,7 @@ async function runBootstrap(opts) {
   if (abortSignal && abortSignal.aborted) {
     if (typeof onEvent === 'function') {
       try {
-        onEvent({ type: 'failed', error: 'bootstrap cancelled by user' })
+        onEvent({ type: 'failed', error: '引导已被用户取消' })
       } catch {
         void 0
       }
@@ -841,7 +841,7 @@ async function runBootstrap(opts) {
     //    client-side.
     for (const stage of manifest.stages) {
       if (abortSignal && abortSignal.aborted) {
-        emit({ type: 'failed', error: 'bootstrap cancelled by user' })
+        emit({ type: 'failed', error: '引导已被用户取消' })
 
         return { ok: false, cancelled: true }
       }
@@ -859,7 +859,7 @@ async function runBootstrap(opts) {
       })
 
       if (ev.state === 'failed') {
-        emit({ type: 'failed', stage: stage.name, error: (ev as any).error || 'stage failed' })
+        emit({ type: 'failed', stage: stage.name, error: (ev as any).error || '阶段失败' })
 
         return { ok: false, failedStage: stage.name, error: (ev as any).error }
       }

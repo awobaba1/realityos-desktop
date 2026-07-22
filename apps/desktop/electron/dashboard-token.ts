@@ -13,14 +13,14 @@ async function fetchPublicText(url, options: any = {}) {
   const { protocol } = new URL(url)
 
   if (protocol !== 'http:' && protocol !== 'https:') {
-    throw new Error(`Unsupported Hermes backend URL protocol: ${protocol}`)
+    throw new Error(`不支持的 RealityOS 后端 URL 协议：${protocol}`)
   }
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TOKEN_FETCH_TIMEOUT_MS
 
   const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) }).catch(error => {
     if (error.name === 'TimeoutError') {
-      throw new Error(`Timed out connecting to Hermes backend after ${timeoutMs}ms`)
+      throw new Error(`连接 RealityOS 后端超时（${timeoutMs} 毫秒）`)
     }
 
     throw error
@@ -94,7 +94,7 @@ async function adoptServedDashboardToken(baseUrl, spawnToken, { childAlive, labe
 
   if (isForeignBackendToken({ servedToken, spawnToken, childAlive: childAlive() })) {
     throw new Error(
-      `${label} exited and ${dashboardIndexUrl(baseUrl)} is served by a process we did not spawn; refusing its session token.`
+      `${label} 已退出，且 ${dashboardIndexUrl(baseUrl)} 由非本程序启动的进程提供；已拒绝其会话令牌。`
     )
   }
 

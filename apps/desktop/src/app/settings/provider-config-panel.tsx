@@ -57,14 +57,14 @@ function FieldControl({
         <Input
           className="min-w-64 flex-1 font-mono"
           onChange={event => onChange(event.target.value)}
-          placeholder={field.is_set ? 'Leave blank to keep current value' : field.placeholder}
+          placeholder={field.is_set ? '留空则保留当前值' : field.placeholder}
           type="password"
           value={value}
         />
         {field.is_set && (
           <Pill tone="primary">
             <Check className="size-3" />
-            Set
+            已设置
           </Pill>
         )}
       </div>
@@ -93,7 +93,7 @@ export function ProviderConfigPanel({ provider }: { provider: string }) {
       setConfig(next)
       setValues(seedValues(next))
     } catch (err) {
-      notifyError(err, 'Memory provider settings failed to load')
+      notifyError(err, '记忆 provider 设置加载失败')
       setConfig(null)
     }
   }, [provider])
@@ -112,10 +112,10 @@ export function ProviderConfigPanel({ provider }: { provider: string }) {
 
     try {
       await saveMemoryProviderConfig(provider, values)
-      notify({ kind: 'success', title: `${config.label} saved`, message: 'Memory provider configuration updated.' })
+      notify({ kind: 'success', title: `${config.label} 已保存`, message: '记忆 provider 配置已更新。' })
       await refresh()
     } catch (err) {
-      notifyError(err, `Failed to save ${config.label} settings`)
+      notifyError(err, `保存 ${config.label} 设置失败`)
     } finally {
       setSaving(false)
     }
@@ -127,7 +127,7 @@ export function ProviderConfigPanel({ provider }: { provider: string }) {
   }
 
   if (!config) {
-    return <LoadingState label="Loading memory provider settings..." />
+    return <LoadingState label="正在加载记忆 provider 设置…" />
   }
 
   const secretFields = config.fields.filter(field => field.kind === 'secret')
@@ -170,7 +170,7 @@ export function ProviderConfigPanel({ provider }: { provider: string }) {
           <div className="flex justify-end">
             <Button disabled={saving} onClick={() => void save()} size="sm">
               {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save />}
-              Save
+              保存
             </Button>
           </div>
         </div>

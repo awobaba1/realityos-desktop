@@ -848,7 +848,7 @@ export function useTerminalSession({
         })
         .catch(error => {
           setStatus('closed')
-          term.write(`Terminal failed to start: ${error instanceof Error ? error.message : String(error)}\r\n`)
+          term.write(`终端启动失败：${error instanceof Error ? error.message : String(error)}\r\n`)
         })
 
     // Open + fit + start only once webfonts settle. Fitting with fallback metrics

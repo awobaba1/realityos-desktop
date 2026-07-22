@@ -39,7 +39,7 @@ export default function SpotifyEmbedRenderer({ descriptor }: { descriptor: Frame
       loading="lazy"
       src={src}
       style={style}
-      title="Spotify embed"
+      title="Spotify 内嵌"
     />
   )
 }

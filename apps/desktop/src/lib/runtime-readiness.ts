@@ -29,7 +29,7 @@ export interface RuntimeReadinessResult {
 
 export type RuntimeReadinessRequester = <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>
 
-const DEFAULT_NOT_READY_REASON = 'Add a provider credential before sending your first message.'
+const DEFAULT_NOT_READY_REASON = '请先添加一个服务商凭证，再发送你的第一条消息。'
 
 function toErrorMessage(error: unknown): null | string {
   if (error instanceof Error) {
@@ -114,7 +114,7 @@ export function interpretRuntimeReadiness(
     let reason = runtimeFailure ?? defaultReason
 
     if (checksDisagree && setupConfigured) {
-      reason = `${reason} setup.status reports configured credentials, but runtime resolution still failed.`
+      reason = `${reason} setup.status 报告已配置凭证，但运行时解析仍然失败。`
     }
 
     return {

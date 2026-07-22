@@ -349,7 +349,7 @@ export function ChatView({
       },
       tools: {
         enabled: true,
-        label: 'Add context',
+        label: '添加上下文',
         suggestions: contextSuggestions
       },
       voice: {

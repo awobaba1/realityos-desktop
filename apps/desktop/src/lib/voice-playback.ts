@@ -105,7 +105,7 @@ export async function playSpeechText(text: string, options: VoicePlaybackOptions
 
         stall = window.setTimeout(() => {
           cleanup()
-          reject(new Error('Playback stalled'))
+          reject(new Error('播放停滞'))
         }, PLAYBACK_STALL_MS)
       }
 
@@ -116,7 +116,7 @@ export async function playSpeechText(text: string, options: VoicePlaybackOptions
 
       const onError = () => {
         cleanup()
-        reject(new Error('Playback failed'))
+        reject(new Error('播放失败'))
       }
 
       currentStop = () => {

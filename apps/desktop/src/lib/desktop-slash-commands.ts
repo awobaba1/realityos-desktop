@@ -125,7 +125,7 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
   },
   {
     name: '/journey',
-    description: 'Open the memory graph — skills + memories over time',
+    description: '打开记忆图谱 — 技能与记忆的时间轴',
     aliases: ['/learning', '/memory-graph'],
     surface: action('journey')
   },

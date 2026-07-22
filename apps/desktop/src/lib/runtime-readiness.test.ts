@@ -31,7 +31,7 @@ describe('interpretRuntimeReadiness', () => {
     expect(result.source).toBe('runtime_check')
     expect(result.checksDisagree).toBe(true)
     expect(result.reason).toContain('No provider can serve the selected model.')
-    expect(result.reason).toContain('setup.status reports configured credentials')
+    expect(result.reason).toContain('setup.status 报告已配置凭证')
   })
 
   it('falls back to setup.status when runtime_check has no boolean result', () => {

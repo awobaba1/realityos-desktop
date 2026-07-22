@@ -560,7 +560,7 @@ export function useComposerActions({
               continue
             }
 
-            lastFailure = `Could not attach folder ${knownPath || ''}`
+            lastFailure = `无法附加文件夹 ${knownPath || ''}`
 
             continue
           }
@@ -572,7 +572,7 @@ export function useComposerActions({
               continue
             }
 
-            lastFailure = `Could not attach ${knownPath}`
+            lastFailure = `无法附加 ${knownPath}`
 
             continue
           }
@@ -583,7 +583,7 @@ export function useComposerActions({
             continue
           }
 
-          lastFailure = `Could not attach ${knownPath || 'file'}`
+          lastFailure = `无法附加 ${knownPath || '文件'}`
 
           continue
         }
@@ -601,7 +601,7 @@ export function useComposerActions({
             continue
           }
 
-          lastFailure = `Could not attach ${file.name || 'image'}`
+          lastFailure = `无法附加 ${file.name || '图像'}`
 
           continue
         }
@@ -612,7 +612,7 @@ export function useComposerActions({
           continue
         }
 
-        lastFailure = `Could not attach ${file.name || 'file'}`
+        lastFailure = `无法附加 ${file.name || '文件'}`
       }
 
       if (!attached && lastFailure) {

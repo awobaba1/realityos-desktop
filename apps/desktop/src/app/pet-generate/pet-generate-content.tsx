@@ -255,7 +255,7 @@ export function PetGenerateContent() {
                   type="button"
                 >
                   <ImageIcon className="size-3" />
-                  Add a reference
+                  添加参考图
                 </button>
               )}
             </div>

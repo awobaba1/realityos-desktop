@@ -33,8 +33,8 @@ test('uninstallArgsForMode maps each mode to the module-runner argv', () => {
 })
 
 test('uninstallArgsForMode throws on an unknown mode (no silent full wipe)', () => {
-  assert.throws(() => uninstallArgsForMode('nuke'), /Unknown uninstall mode/)
-  assert.throws(() => uninstallArgsForMode(''), /Unknown uninstall mode/)
+  assert.throws(() => uninstallArgsForMode('nuke'), /未知的卸载模式/)
+  assert.throws(() => uninstallArgsForMode(''), /未知的卸载模式/)
 })
 
 test('UNINSTALL_MODES lists exactly the three supported modes', () => {

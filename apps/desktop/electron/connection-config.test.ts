@@ -203,17 +203,17 @@ test('normalizeRemoteBaseUrl preserves a path prefix', () => {
 })
 
 test('normalizeRemoteBaseUrl rejects empty input', () => {
-  assert.throws(() => normalizeRemoteBaseUrl(''), /required/)
-  assert.throws(() => normalizeRemoteBaseUrl('   '), /required/)
+  assert.throws(() => normalizeRemoteBaseUrl(''), /请填写/)
+  assert.throws(() => normalizeRemoteBaseUrl('   '), /请填写/)
 })
 
 test('normalizeRemoteBaseUrl rejects non-http(s) protocols', () => {
-  assert.throws(() => normalizeRemoteBaseUrl('ftp://host'), /http:\/\/ or https:\/\//)
-  assert.throws(() => normalizeRemoteBaseUrl('file:///etc/passwd'), /http:\/\/ or https:\/\//)
+  assert.throws(() => normalizeRemoteBaseUrl('ftp://host'), /必须是 http:\/\/ 或 https/)
+  assert.throws(() => normalizeRemoteBaseUrl('file:///etc/passwd'), /必须是 http:\/\/ 或 https/)
 })
 
 test('normalizeRemoteBaseUrl rejects garbage', () => {
-  assert.throws(() => normalizeRemoteBaseUrl('not a url'), /not valid/)
+  assert.throws(() => normalizeRemoteBaseUrl('not a url'), /无效/)
 })
 
 // --- buildGatewayWsUrl (token) ---
@@ -442,8 +442,8 @@ test('resolveTestWsUrl (oauth, mint FAILS) throws — must NOT skip WS validatio
     (err: any) => {
       // Actionable, points the user at re-auth, and preserves the cause + flag
       // the boot overlay uses to offer a sign-in prompt.
-      assert.match(err.message, /WebSocket ticket/i)
-      assert.match(err.message, /sign in again/i)
+      assert.match(err.message, /WebSocket 票据/)
+      assert.match(err.message, /重新登录/)
       assert.equal(err.needsOauthLogin, true)
       assert.ok(err.cause instanceof Error)
 

@@ -10,7 +10,7 @@ interface PageLoaderProps extends Omit<ComponentProps<'div'>, 'children'> {
 export function PageLoader({
   'aria-label': ariaLabel,
   className,
-  label = 'Loading',
+  label = '加载中',
   role = 'status',
   ...props
 }: PageLoaderProps) {

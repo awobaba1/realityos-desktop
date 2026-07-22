@@ -38,7 +38,7 @@ export async function requestOneShot(req: OneShotRequest): Promise<string> {
   const gateway = $gateway.get()
 
   if (!gateway) {
-    throw new Error('Gateway not connected')
+    throw new Error('网关未连接')
   }
 
   const sessionId = req.sessionId === undefined ? $activeSessionId.get() : req.sessionId

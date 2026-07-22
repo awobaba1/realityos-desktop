@@ -560,14 +560,14 @@ async function reviewShipInfo(repoPath, ghBin) {
 // Create a PR for the current branch (pushing first so gh has a remote ref),
 // letting gh fill title/body from the commits. Returns the new PR url.
 async function reviewCreatePr(repoPath, gitBin, ghBin) {
-  const cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Review create PR' })
+  const cwd = resolveRequestedPathForIpc(repoPath, { purpose: '审查创建 PR' })
 
   await reviewPush(repoPath, gitBin).catch(() => undefined)
 
   const created = await runGh(['pr', 'create', '--fill'], cwd, ghBin)
 
   if (!created.ok) {
-    throw new Error('gh pr create failed (is gh installed and authenticated?)')
+    throw new Error('gh 创建 PR 失败（请确认 gh 已安装并已登录）')
   }
 
   const url = created.stdout.trim().split('\n').filter(Boolean).pop() || ''

@@ -41,7 +41,7 @@ export default function YouTubeEmbedRenderer({ descriptor }: { descriptor: Frame
       scrolling="no"
       src={src}
       style={{ colorScheme: isDark ? 'dark' : 'light' }}
-      title="YouTube embed"
+      title="YouTube 内嵌"
     />
   )
 }

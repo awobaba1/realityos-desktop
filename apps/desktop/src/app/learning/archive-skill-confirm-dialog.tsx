@@ -3,7 +3,7 @@ import { deleteLearningNode } from '@/hermes'
 import { type Translations, useI18n } from '@/i18n'
 import { notify } from '@/store/notifications'
 
-export const ARCHIVE_SKILL_DESCRIPTION = 'The skill is archived and can be restored with `hermes curator restore`.'
+export const ARCHIVE_SKILL_DESCRIPTION = '技能已归档，可用 `hermes curator restore` 恢复。'
 
 export function notifySkillArchived(t: Translations): void {
   notify({ kind: 'success', message: t.skills.skillArchivedMessage, title: t.skills.skillArchivedTitle })
@@ -13,7 +13,7 @@ export async function archiveLearningSkill(id: string): Promise<void> {
   const res = await deleteLearningNode(id)
 
   if (!res.ok) {
-    throw new Error(res.message || 'Archive failed')
+    throw new Error(res.message || '归档失败')
   }
 }
 
@@ -50,7 +50,7 @@ export function ArchiveSkillConfirmDialog({
 
   return (
     <ConfirmDialog
-      confirmLabel="Archive"
+      confirmLabel="归档"
       description={ARCHIVE_SKILL_DESCRIPTION}
       destructive
       dismissOnConfirm
@@ -68,7 +68,7 @@ export function ArchiveSkillConfirmDialog({
         )
       }}
       open={open}
-      title={`Archive ${skillName}?`}
+      title={`归档 ${skillName}？`}
     />
   )
 }

@@ -40,8 +40,8 @@ function encryptDesktopSecret(value, safeStorageApi) {
 
   if (!encryptionAvailable) {
     throw new Error(
-      'Secure token storage is unavailable, so Hermes Desktop cannot save remote gateway tokens. ' +
-        'Set HERMES_DESKTOP_REMOTE_URL and HERMES_DESKTOP_REMOTE_TOKEN in your environment, or enable OS keychain access and try again.'
+      '安全令牌存储不可用，RealityOS 桌面无法保存远程网关令牌。' +
+        '请在环境变量中设置 HERMES_DESKTOP_REMOTE_URL 与 HERMES_DESKTOP_REMOTE_TOKEN，或开启系统钥匙串后重试。'
     )
   }
 
@@ -53,8 +53,8 @@ function encryptDesktopSecret(value, safeStorageApi) {
   } catch (error) {
     const detail = error instanceof Error && error.message ? ` (${error.message})` : ''
     throw new Error(
-      `Failed to encrypt the remote gateway token for secure storage${detail}. ` +
-        'Set HERMES_DESKTOP_REMOTE_URL and HERMES_DESKTOP_REMOTE_TOKEN in your environment as a fallback.'
+      `加密远程网关令牌失败${detail}。` +
+        '可改用环境变量 HERMES_DESKTOP_REMOTE_URL 与 HERMES_DESKTOP_REMOTE_TOKEN。'
     )
   }
 }
@@ -72,39 +72,39 @@ function sensitiveFileBlockReason(filePath) {
   }
 
   if (normalized.includes('/.ssh/')) {
-    return 'SSH key/config files are blocked.'
+    return '已阻止 SSH 密钥/配置文件。'
   }
 
   if (normalized.includes('/.gnupg/')) {
-    return 'GPG key material is blocked.'
+    return '已阻止 GPG 密钥文件。'
   }
 
   if (normalized.endsWith('/.aws/credentials')) {
-    return 'AWS credential files are blocked.'
+    return '已阻止 AWS 凭证文件。'
   }
 
   if (basename === '.env') {
-    return '.env files are blocked because they commonly contain secrets.'
+    return '已阻止 .env 文件（通常包含密钥）。'
   }
 
   if (basename.startsWith('.env.')) {
     const suffix = basename.slice('.env.'.length)
 
     if (!SAFE_ENV_SUFFIXES.has(suffix)) {
-      return `${basename} is blocked because it appears to contain environment secrets.`
+      return `${basename} 已阻止（疑似包含环境密钥）。`
     }
   }
 
   if (/^id_(rsa|dsa|ecdsa|ed25519)(?:\..+)?$/.test(basename) && !basename.endsWith('.pub')) {
-    return 'SSH private key files are blocked.'
+    return '已阻止 SSH 私钥文件。'
   }
 
   if (SENSITIVE_EXTENSIONS.has(ext)) {
-    return `${ext} key/certificate files are blocked.`
+    return `${ext} 密钥/证书文件已阻止。`
   }
 
   if (basename === '.npmrc' || basename === '.netrc' || basename === '.pypirc') {
-    return `${basename} is blocked because it may include auth credentials.`
+    return `${basename} 已阻止（可能包含认证凭证）。`
   }
 
   return null
@@ -118,19 +118,19 @@ function ipcPathError(code: any, message: string): Error & { code: any } {
   return error
 }
 
-function rejectUnsafePathSyntax(filePath, purpose = 'File read') {
+function rejectUnsafePathSyntax(filePath, purpose = '文件读取') {
   if (typeof filePath !== 'string') {
-    throw ipcPathError('invalid-path', `${purpose} failed: file path is required.`)
+    throw ipcPathError('invalid-path', `${purpose}失败：缺少文件路径。`)
   }
 
   const raw = filePath.trim()
 
   if (!raw) {
-    throw ipcPathError('invalid-path', `${purpose} failed: file path is required.`)
+    throw ipcPathError('invalid-path', `${purpose}失败：缺少文件路径。`)
   }
 
   if (raw.includes('\0')) {
-    throw ipcPathError('invalid-path', `${purpose} failed: file path is invalid.`)
+    throw ipcPathError('invalid-path', `${purpose}失败：路径无效。`)
   }
 
   const normalized = raw.replace(/\\/g, '/').toLowerCase()
@@ -141,14 +141,14 @@ function rejectUnsafePathSyntax(filePath, purpose = 'File read') {
     normalized.startsWith('globalroot/device/') ||
     normalized.includes('/globalroot/device/')
   ) {
-    throw ipcPathError('device-path', `${purpose} blocked: Windows device paths are not allowed.`)
+    throw ipcPathError('device-path', `${purpose}已阻止：不允许 Windows 设备路径。`)
   }
 
   return raw
 }
 
 function resolveRequestedPathForIpc(filePath, options: { purpose?: string; baseDir?: fs.PathOrFileDescriptor } = {}) {
-  const purpose = String(options.purpose || 'File read')
+  const purpose = String(options.purpose || '文件读取')
   let raw = rejectUnsafePathSyntax(filePath, purpose)
 
   // Gateway-reported cwds (config `terminal.cwd`, remote sessions) routinely
@@ -170,7 +170,7 @@ function resolveRequestedPathForIpc(filePath, options: { purpose?: string; baseD
 
       resolvedPath = fileURLToPath(parsed)
     } catch {
-      throw ipcPathError('invalid-path', `${purpose} failed: file URL is invalid.`)
+      throw ipcPathError('invalid-path', `${purpose}失败：file URL 无效。`)
     }
 
     rejectUnsafePathSyntax(resolvedPath, purpose)
@@ -195,12 +195,12 @@ async function statForIpc(fsImpl: { promises: { stat: typeof fs.promises.stat } 
     const code = error && typeof error === 'object' ? error.code : ''
 
     if (code === 'ENOENT' || code === 'ENOTDIR') {
-      throw ipcPathError(code || 'ENOENT', `${purpose} failed: ${typeLabel} does not exist.`)
+      throw ipcPathError(code || 'ENOENT', `${purpose}失败：${typeLabel}不存在。`)
     }
 
     throw ipcPathError(
       code || 'read-error',
-      `${purpose} failed: ${error instanceof Error ? error.message : String(error)}`
+      `${purpose}失败：${error instanceof Error ? error.message : String(error)}`
     )
   }
 }
@@ -219,7 +219,7 @@ async function realpathForIpc(fsImpl, resolvedPath, purpose) {
     const code = error && typeof error === 'object' ? error.code : ''
     throw ipcPathError(
       code || 'read-error',
-      `${purpose} failed: ${error instanceof Error ? error.message : String(error)}`
+      `${purpose}失败：${error instanceof Error ? error.message : String(error)}`
     )
   }
 }
@@ -228,7 +228,7 @@ function rejectSensitiveFilePath(filePath, purpose) {
   const blockReason = sensitiveFileBlockReason(filePath)
 
   if (blockReason) {
-    throw ipcPathError('sensitive-file', `${purpose} blocked for sensitive file: ${blockReason}`)
+    throw ipcPathError('sensitive-file', `${purpose}已阻止（敏感文件）：${blockReason}`)
   }
 }
 
@@ -240,13 +240,13 @@ async function resolveDirectoryForIpc(
     fs?: { promises: { stat: typeof fs.promises.stat } }
   } = {}
 ) {
-  const purpose = String(options.purpose || 'Directory read')
+  const purpose = String(options.purpose || '目录读取')
   const fsImpl = options.fs || fs
   const resolvedPath = resolveRequestedPathForIpc(dirPath, { baseDir: options.baseDir, purpose })
-  const stat = await statForIpc(fsImpl, resolvedPath, purpose, 'directory')
+  const stat = await statForIpc(fsImpl, resolvedPath, purpose, '目录')
 
   if (!stat.isDirectory()) {
-    throw ipcPathError('ENOTDIR', `${purpose} failed: path is not a directory.`)
+    throw ipcPathError('ENOTDIR', `${purpose}失败：路径不是目录。`)
   }
 
   const realPath = await realpathForIpc(fsImpl, resolvedPath, purpose)
@@ -264,7 +264,7 @@ async function resolveReadableFileForIpc(
     maxBytes?: number
   } = {}
 ) {
-  const purpose = String(options.purpose || 'File read')
+  const purpose = String(options.purpose || '文件读取')
   const fsImpl = options.fs || fs
   const resolvedPath = resolveRequestedPathForIpc(filePath, { baseDir: options.baseDir, purpose })
 
@@ -272,14 +272,14 @@ async function resolveReadableFileForIpc(
     rejectSensitiveFilePath(resolvedPath, purpose)
   }
 
-  const stat = await statForIpc(fsImpl, resolvedPath, purpose, 'file')
+  const stat = await statForIpc(fsImpl, resolvedPath, purpose, '文件')
 
   if (stat.isDirectory()) {
-    throw ipcPathError('EISDIR', `${purpose} failed: path points to a directory.`)
+    throw ipcPathError('EISDIR', `${purpose}失败：路径指向目录。`)
   }
 
   if (!stat.isFile()) {
-    throw ipcPathError('EINVAL', `${purpose} failed: only regular files can be read.`)
+    throw ipcPathError('EINVAL', `${purpose}失败：仅支持普通文件。`)
   }
 
   const realPath = await realpathForIpc(fsImpl, resolvedPath, purpose)
@@ -291,13 +291,13 @@ async function resolveReadableFileForIpc(
   const maxBytes = Number.isFinite(options.maxBytes) && Number(options.maxBytes) > 0 ? Number(options.maxBytes) : null
 
   if (maxBytes && stat.size > maxBytes) {
-    throw ipcPathError('EFBIG', `${purpose} failed: file is too large (${stat.size} bytes; limit ${maxBytes} bytes).`)
+    throw ipcPathError('EFBIG', `${purpose}失败：文件过大（${stat.size} 字节，上限 ${maxBytes} 字节）。`)
   }
 
   try {
     await fsImpl.promises.access(resolvedPath, fs.constants.R_OK)
   } catch {
-    throw ipcPathError('EACCES', `${purpose} failed: file is not readable.`)
+    throw ipcPathError('EACCES', `${purpose}失败：文件不可读。`)
   }
 
   return { realPath, resolvedPath, stat }

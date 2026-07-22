@@ -39,10 +39,10 @@ export const CONTEXT_SPLIT_KIT: SplitMenuKit = {
 
 // Ordered so the default (right) sits first, one hop away.
 const SPLIT_DIRS: { dir: SplitDir; icon: string; label: string }[] = [
-  { dir: 'right', icon: 'arrow-right', label: 'Right' },
-  { dir: 'bottom', icon: 'arrow-down', label: 'Down' },
-  { dir: 'left', icon: 'arrow-left', label: 'Left' },
-  { dir: 'top', icon: 'arrow-up', label: 'Up' }
+  { dir: 'right', icon: 'arrow-right', label: '右' },
+  { dir: 'bottom', icon: 'arrow-down', label: '下' },
+  { dir: 'left', icon: 'arrow-left', label: '左' },
+  { dir: 'top', icon: 'arrow-up', label: '上' }
 ]
 
 interface SplitSubmenuProps {

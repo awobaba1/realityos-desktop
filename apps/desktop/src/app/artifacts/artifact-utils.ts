@@ -26,7 +26,7 @@ const FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|pdf|txt|json|md|csv|zip|tar
 const KEY_HINT_RE = /(path|file|url|image|artifact|output|download|result|target)/i
 
 function artifactSessionTitle(session: SessionInfo): string {
-  return session.title?.trim() || session.preview?.trim() || 'Untitled session'
+  return session.title?.trim() || session.preview?.trim() || '未命名会话'
 }
 
 function normalizeValue(value: string): string {

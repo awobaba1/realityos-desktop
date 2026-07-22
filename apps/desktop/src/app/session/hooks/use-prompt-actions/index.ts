@@ -102,7 +102,7 @@ export async function uploadComposerAttachment(
       }
 
       if (!payload) {
-        throw new Error(`Could not read ${label}`)
+        throw new Error(`无法读取 ${label}`)
       }
 
       result = await requestGateway<ImageAttachResponse>('image.attach_bytes', {
@@ -118,7 +118,7 @@ export async function uploadComposerAttachment(
     }
 
     if (!result.attached) {
-      throw new Error(result.message || `Could not attach ${label}`)
+      throw new Error(result.message || `无法附加 ${label}`)
     }
 
     const attachedPath = result.path || path
@@ -143,7 +143,7 @@ export async function uploadComposerAttachment(
     }
 
     if (!dataUrl) {
-      throw new Error(`Could not read ${label}`)
+      throw new Error(`无法读取 ${label}`)
     }
   }
 
@@ -155,7 +155,7 @@ export async function uploadComposerAttachment(
   })
 
   if (!result.attached || !result.ref_text) {
-    throw new Error(result.message || `Could not attach ${label}`)
+    throw new Error(result.message || `无法附加 ${label}`)
   }
 
   return {
@@ -685,7 +685,7 @@ export function usePromptActions({
       const sessionId = activeSessionId || activeSessionIdRef.current
 
       if (!sessionId) {
-        throw new Error('No active session to restore.')
+        throw new Error('没有可恢复的活动会话。')
       }
 
       const messages = $messages.get()

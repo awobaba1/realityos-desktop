@@ -60,7 +60,7 @@ export function PetEggHatch({ subtitle, onCancel, cancelLabel }: PetEggHatchProp
 
       {onCancel && (
         <Button onClick={onCancel} size="xs" variant="text">
-          {cancelLabel ?? 'Cancel'}
+          {cancelLabel ?? '取消'}
         </Button>
       )}
     </div>

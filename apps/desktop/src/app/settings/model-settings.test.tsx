@@ -170,7 +170,7 @@ describe('ModelSettings', () => {
     fireEvent.click(applyButton)
 
     // The switch-time notice names the pinned provider and offers a reset.
-    expect(await screen.findByText(/still run on/)).toBeTruthy()
+    expect(await screen.findByText(/未走主模型/)).toBeTruthy()
     expect(screen.getByText('nous')).toBeTruthy()
   })
 
@@ -183,7 +183,7 @@ describe('ModelSettings', () => {
     await renderModelSettings()
 
     // Banner present on load, no switch required.
-    expect(await screen.findByText(/still run on/)).toBeTruthy()
+    expect(await screen.findByText(/未走主模型/)).toBeTruthy()
   })
 })
 
@@ -239,7 +239,7 @@ describe('ModelSettings MoA preset editor', () => {
 
   async function openReferenceEditor() {
     await renderModelSettings()
-    expect(await screen.findByText('Reference 1')).toBeTruthy()
+    expect(await screen.findByText('参考 1')).toBeTruthy()
   }
 
   function slotSelects() {

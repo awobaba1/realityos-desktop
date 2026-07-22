@@ -50,7 +50,7 @@ function normalizeRemoteBaseUrl(rawUrl) {
   const value = String(rawUrl || '').trim()
 
   if (!value) {
-    throw new Error('Remote gateway URL is required.')
+    throw new Error('请填写远程网关 URL。')
   }
 
   let parsed
@@ -58,11 +58,11 @@ function normalizeRemoteBaseUrl(rawUrl) {
   try {
     parsed = new URL(value)
   } catch (error) {
-    throw new Error(`Remote gateway URL is not valid: ${error.message}`)
+    throw new Error(`远程网关 URL 无效：${error.message}`)
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Remote gateway URL must be http:// or https://, got ${parsed.protocol}`)
+    throw new Error(`远程网关 URL 必须是 http:// 或 https://，当前为 ${parsed.protocol}`)
   }
 
   parsed.hash = ''
@@ -129,8 +129,8 @@ async function resolveTestWsUrl(baseUrl, authMode, token, deps: any = {}) {
       ticket = await mintTicket(baseUrl)
     } catch (error) {
       const err = new Error(
-        'Reached the gateway over HTTP, but could not mint a WebSocket ticket for the OAuth session ' +
-          '(it may have expired). Open Settings → Gateway and sign in again.'
+        '已通过 HTTP 连上网关，但无法为 OAuth 会话签发 WebSocket 票据（可能已过期）。' +
+          '请到「设置 → 网关」重新登录。'
       )
 
       ;(err as any).needsOauthLogin = true

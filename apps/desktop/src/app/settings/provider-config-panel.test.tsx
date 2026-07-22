@@ -137,7 +137,7 @@ describe('ProviderConfigPanel', () => {
     await act(async () => {
       fireEvent.change(apiUrl, { target: { value: 'http://localhost:8888' } })
       fireEvent.change(screen.getByLabelText('Bank ID'), { target: { value: 'ben-bank' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      fireEvent.click(screen.getByRole('button', { name: '保存' }))
     })
 
     await waitFor(() =>

@@ -224,10 +224,10 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
     return (
       <div className="grid h-full place-items-center p-4">
         <div className="max-w-[24rem] space-y-2 text-center font-mono text-[11px]">
-          <div className="text-(--ui-danger,#f87171)">Couldn't open this session</div>
+          <div className="text-(--ui-danger,#f87171)">无法打开此会话</div>
           <div className="break-words text-(--ui-text-quaternary)">{tile.error}</div>
           <Button onClick={() => patchSessionTile(storedSessionId, { error: undefined })} size="sm" variant="outline">
-            Retry
+            重试
           </Button>
         </div>
       </div>

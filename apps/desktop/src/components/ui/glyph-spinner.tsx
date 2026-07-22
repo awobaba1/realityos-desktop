@@ -40,7 +40,7 @@ interface GlyphSpinnerProps {
  * an `inline-flex` cell with `leading-none` and `items-center` so it sits
  * vertically centred inside its parent's line-box.
  */
-export function GlyphSpinner({ ariaLabel = 'Loading', className, spinner = 'braille' }: GlyphSpinnerProps) {
+export function GlyphSpinner({ ariaLabel = '加载中', className, spinner = 'braille' }: GlyphSpinnerProps) {
   const spin = FRAMES_BY_NAME[spinner] ?? FRAMES_BY_NAME.braille!
   const [frame, setFrame] = useState(0)
 

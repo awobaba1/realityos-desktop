@@ -95,7 +95,7 @@ export default function MermaidRenderer({ code, streaming }: RichFenceProps) {
   // renders before any zoom; the inline version stays capped at 33dvh.
   return (
     <Zoomable
-      label="Open diagram"
+      label="打开图表"
       onCopy={() => copySvgAsPng(svg)}
       overlay={
         <div

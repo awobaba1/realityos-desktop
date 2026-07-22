@@ -72,7 +72,7 @@ export function usePreviewRouting({
       const sessionId = activeSessionIdRef.current
 
       if (!sessionId) {
-        throw new Error('No active session for background restart')
+        throw new Error('没有活动会话可用于后台重启')
       }
 
       const cwd = $currentCwd.get() || currentCwd || ''
@@ -87,7 +87,7 @@ export function usePreviewRouting({
       const taskId = result.task_id || ''
 
       if (!taskId) {
-        throw new Error('Background restart did not return a task id')
+        throw new Error('后台重启未返回任务 ID')
       }
 
       beginPreviewServerRestart(taskId, url)

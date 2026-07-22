@@ -542,7 +542,7 @@ export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayP
                       .map(entry => (entry.stage ? `[${entry.stage}] ${entry.line}` : entry.line))
                       .join('\n')
 
-                    const fullText = state.error ? `Error: ${state.error}\n\n${text}` : text
+                    const fullText = state.error ? `错误：${state.error}\n\n${text}` : text
 
                     try {
                       await navigator.clipboard.writeText(fullText)

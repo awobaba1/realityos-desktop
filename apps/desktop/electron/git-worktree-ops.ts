@@ -217,7 +217,7 @@ async function addExistingBranchWorktree(gitBin, root, name) {
   const branch = sanitizeBranch(name)
 
   if (!branch) {
-    throw new Error('Branch name is required.')
+    throw new Error('请填写分支名。')
   }
 
   if (branch === (await defaultBranch(gitBin, root))) {
@@ -233,7 +233,7 @@ async function addExistingBranchWorktree(gitBin, root, name) {
 }
 
 async function addWorktree(repoPath, options, gitBin) {
-  const resolved = resolveRequestedPathForIpc(repoPath, { purpose: 'Worktree add' })
+  const resolved = resolveRequestedPathForIpc(repoPath, { purpose: '添加 worktree' })
   // A new project's folder may not be a git repo yet — init it (with a root
   // commit) so the worktree has something to branch from.
   await ensureGitRepo(gitBin, resolved)
@@ -295,8 +295,8 @@ async function addWorktree(repoPath, options, gitBin) {
 }
 
 async function removeWorktree(repoPath, worktreePath, options, gitBin) {
-  const resolvedRepo = resolveRequestedPathForIpc(repoPath, { purpose: 'Worktree remove (repo)' })
-  const resolvedTree = resolveRequestedPathForIpc(worktreePath, { purpose: 'Worktree remove (tree)' })
+  const resolvedRepo = resolveRequestedPathForIpc(repoPath, { purpose: '移除 worktree（仓库）' })
+  const resolvedTree = resolveRequestedPathForIpc(worktreePath, { purpose: '移除 worktree（工作树）' })
   const root = await mainRoot(gitBin, resolvedRepo)
   const args = ['worktree', 'remove']
 
@@ -318,7 +318,7 @@ async function listBranches(repoPath, gitBin) {
   let resolved
 
   try {
-    resolved = resolveRequestedPathForIpc(repoPath, { purpose: 'Branch list' })
+    resolved = resolveRequestedPathForIpc(repoPath, { purpose: '分支列表' })
   } catch {
     return []
   }
@@ -350,11 +350,11 @@ async function listBranches(repoPath, gitBin) {
 }
 
 async function switchBranch(repoPath, branch, gitBin) {
-  const resolved = resolveRequestedPathForIpc(repoPath, { purpose: 'Branch switch' })
+  const resolved = resolveRequestedPathForIpc(repoPath, { purpose: '切换分支' })
   const target = sanitizeBranch(branch)
 
   if (!target) {
-    throw new Error('Branch name is required.')
+    throw new Error('请填写分支名。')
   }
 
   await runGit(gitBin, ['switch', target], resolved)

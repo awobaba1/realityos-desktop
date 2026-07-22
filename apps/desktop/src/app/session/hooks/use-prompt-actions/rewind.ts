@@ -173,13 +173,13 @@ export function planRestore(messages: ChatMessage[], messageId: string, target?:
   const source = messages[sourceIndex]
 
   if (!source || source.role !== 'user') {
-    throw new Error('Could not find the message to restore.')
+    throw new Error('找不到要恢复的消息。')
   }
 
   const text = (chatMessageText(source).trim() || target?.text?.trim() || '').trim()
 
   if (!text) {
-    throw new Error('Cannot restore an empty message.')
+    throw new Error('无法恢复空消息。')
   }
 
   const truncateOrdinal =

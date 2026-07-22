@@ -21,9 +21,9 @@ interface SignInCopy {
 }
 
 const DEFAULT_SIGN_IN_COPY: SignInCopy = {
-  identityProvider: 'your identity provider',
-  remoteGateway: 'Sign in to remote gateway',
-  withProvider: provider => `Sign in with ${provider}`
+  identityProvider: '你的身份提供方',
+  remoteGateway: '登录到远端网关',
+  withProvider: provider => `使用 ${provider} 登录`
 }
 
 // True when the app is pointed at a remote/cloud backend (either resolves to a
@@ -77,7 +77,7 @@ export function deriveProviderShape(providers: DesktopAuthProvider[] | null | un
   const list = providers ?? []
 
   if (list.length === 0) {
-    return { isPassword: false, providerLabel: 'your identity provider' }
+    return { isPassword: false, providerLabel: '你的身份提供方' }
   }
 
   const isPassword = list.every(p => Boolean(p.supportsPassword))

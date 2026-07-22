@@ -317,7 +317,7 @@ const LOADER_CURVES: Record<LoaderType, LoaderCurve> = {
 
 export function Loader({
   className,
-  label = 'Loading',
+  label = '加载中',
   pathSteps = 240,
   role = 'status',
   strokeScale = 1,

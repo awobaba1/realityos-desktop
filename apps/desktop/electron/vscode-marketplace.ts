@@ -104,20 +104,20 @@ async function resolveExtension(id) {
   const extension = json?.results?.[0]?.extensions?.[0]
 
   if (!extension) {
-    throw new Error(`Extension "${id}" was not found on the Marketplace.`)
+    throw new Error(`在 Marketplace 未找到扩展「${id}」。`)
   }
 
   const version = extension.versions?.[0]
 
   if (!version) {
-    throw new Error(`Extension "${id}" has no published versions.`)
+    throw new Error(`扩展「${id}」没有已发布版本。`)
   }
 
   const asset = (version.files ?? []).find(file => file.assetType === VSIX_ASSET_TYPE)
   const vsixUrl = asset?.source
 
   if (!vsixUrl) {
-    throw new Error(`Could not find a downloadable package for "${id}".`)
+    throw new Error(`找不到「${id}」的可下载包。`)
   }
 
   return { displayName: extension.displayName || id, vsixUrl }

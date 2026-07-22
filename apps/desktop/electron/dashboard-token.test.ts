@@ -90,7 +90,7 @@ test('resolveServedDashboardToken propagates fetch errors so callers can fall ba
 })
 
 test('fetchPublicText rejects unsupported protocols', async () => {
-  await assert.rejects(() => fetchPublicText('file:///tmp/index.html'), /Unsupported Hermes backend URL protocol/)
+  await assert.rejects(() => fetchPublicText('file:///tmp/index.html'), /不支持的 RealityOS 后端 URL 协议/)
 })
 
 test('isForeignBackendToken only flags a mismatched token from a dead child', () => {
@@ -126,7 +126,7 @@ test('adoptServedDashboardToken refuses a foreign token when our child is dead',
         fetchText: async () => '<script>window.__HERMES_SESSION_TOKEN__="squatter-token";</script>',
         label: 'Hermes backend for profile "work"'
       }),
-    /profile "work".*process we did not spawn/
+    /profile "work".*已拒绝其会话令牌/
   )
 })
 

@@ -39,7 +39,7 @@ test('encryptDesktopSecret requires available secure storage', () => {
 
   assert.throws(
     () => encryptDesktopSecret('token', { isEncryptionAvailable: () => false, encryptString: () => Buffer.alloc(0) }),
-    /Secure token storage is unavailable/
+    /安全令牌存储不可用/
   )
 })
 
@@ -159,7 +159,7 @@ test('resolveReadableFileForIpc validates existence type size and sensitivity', 
         baseDir: tempDir,
         purpose: 'Text preview'
       }),
-      /file does not exist/
+      /不存在/
     )
 
     const nestedDir = path.join(tempDir, 'directory')
@@ -168,7 +168,7 @@ test('resolveReadableFileForIpc validates existence type size and sensitivity', 
       resolveReadableFileForIpc(nestedDir, {
         purpose: 'Text preview'
       }),
-      /path points to a directory/
+      /路径指向目录/
     )
 
     const largePath = path.join(tempDir, 'large.txt')
@@ -178,7 +178,7 @@ test('resolveReadableFileForIpc validates existence type size and sensitivity', 
         maxBytes: 8,
         purpose: 'File preview'
       }),
-      /file is too large/
+      /文件过大/
     )
 
     const envPath = path.join(tempDir, '.env')
@@ -187,7 +187,7 @@ test('resolveReadableFileForIpc validates existence type size and sensitivity', 
       resolveReadableFileForIpc(envPath, {
         purpose: 'File preview'
       }),
-      /blocked for sensitive file/
+      /已阻止（敏感文件）/
     )
 
     const envTemplatePath = path.join(tempDir, '.env.example')

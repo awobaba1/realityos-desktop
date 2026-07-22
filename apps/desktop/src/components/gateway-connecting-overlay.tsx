@@ -9,7 +9,7 @@ import { $gatewayState } from '@/store/session'
 
 // Decode mechanics live in the shared <DecodeText> primitive
 // (components/ui/decode-text.tsx). "CONN" stays legible via prefix={4}.
-const TEXT = 'CONNECTING'
+const TEXT = '连接中'
 
 // Exit choreography (ms): text fades down + out, hold, then the overlay fades.
 const TEXT_OUT_MS = 360

@@ -162,7 +162,7 @@ describe('useProjectTree', () => {
       {
         id: '/p/priv::__error__',
         isDirectory: false,
-        name: 'Unable to read (EACCES)',
+        name: '无法读取（EACCES）',
         placeholder: 'error'
       }
     ])

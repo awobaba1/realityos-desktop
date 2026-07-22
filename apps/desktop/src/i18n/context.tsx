@@ -146,7 +146,7 @@ export function I18nProvider({ children, configClient = defaultConfigClient, ini
         const result = await configClient.saveConfig(withConfigDisplayLanguage(latestConfig, next))
 
         if (!result.ok) {
-          throw new Error('Failed to save language')
+          throw new Error('保存语言失败')
         }
       } catch (error) {
         const nextError = toError(error)

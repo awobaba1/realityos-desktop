@@ -39,7 +39,7 @@ const UNINSTALL_MODES = ['gui', 'lite', 'full']
  */
 function uninstallArgsForMode(mode) {
   if (!UNINSTALL_MODES.includes(mode)) {
-    throw new Error(`Unknown uninstall mode: ${mode}`)
+    throw new Error(`未知的卸载模式：${mode}`)
   }
 
   return ['-m', 'hermes_cli.uninstall', '--mode', mode]

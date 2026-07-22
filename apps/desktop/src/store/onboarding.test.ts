@@ -105,7 +105,7 @@ describe('refreshOnboarding', () => {
     expect(api).toHaveBeenCalledTimes(1)
     expect($desktopOnboarding.get().providers?.map(p => p.id)).toEqual(['fresh'])
     expect($desktopOnboarding.get().reason).toContain('Selected runtime is not available.')
-    expect($desktopOnboarding.get().reason).toContain('setup.status reports configured credentials')
+    expect($desktopOnboarding.get().reason).toContain('setup.status 报告已配置凭证')
   })
 
   it('keeps cached providers when onboarding was not re-requested', async () => {
@@ -339,7 +339,7 @@ describe('OAuth onboarding', () => {
           code: 'fresh-code'
         },
         reason:
-          'No access token found for Nous Portal login. setup.status reports configured credentials, but runtime resolution still failed.',
+          'No access token found for Nous Portal login. setup.status 报告已配置凭证，但运行时解析仍然失败。',
         requested: true
       })
     )

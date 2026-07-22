@@ -77,7 +77,7 @@ function sanitizePersistedTerminal(value: unknown): PersistedTerminalEntry | nul
     id,
     ...(restoreCwd ? { restoreCwd } : {}),
     ...(reviveBuffer ? { reviveBuffer } : {}),
-    title: title || 'Terminal'
+    title: title || '终端'
   }
 }
 
@@ -160,7 +160,7 @@ const newId = () =>
  *  tie to session/project state); pass an explicit cwd to override. Returns the id. */
 export function createTerminal(cwd: string = $currentCwd.get()): string {
   const id = newId()
-  $terminals.set([...$terminals.get(), { id, title: 'Terminal', auto: true, cwd, kind: 'user' }])
+  $terminals.set([...$terminals.get(), { id, title: '终端', auto: true, cwd, kind: 'user' }])
   $activeTerminalId.set(id)
 
   return id

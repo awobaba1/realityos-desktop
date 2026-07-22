@@ -49,7 +49,7 @@ export function LogsPane() {
   if (!data) {
     return (
       <div className="grid h-full place-items-center">
-        <DecodeText className="text-(--ui-text-quaternary)" cursor prefix={1} text="LOGS" />
+        <DecodeText className="text-(--ui-text-quaternary)" cursor prefix={1} text="日志" />
       </div>
     )
   }
@@ -80,8 +80,8 @@ export function PreviewRailPane() {
     return (
       <div className="grid h-full place-items-center px-4 text-center">
         <div className="flex flex-col items-center gap-1.5">
-          <DecodeText className="text-(--ui-text-quaternary)" prefix={1} text="PREVIEW" />
-          <span className="text-[0.68rem] text-(--ui-text-quaternary)">click a file in the files pane</span>
+          <DecodeText className="text-(--ui-text-quaternary)" prefix={1} text="预览" />
+          <span className="text-[0.68rem] text-(--ui-text-quaternary)">在文件面板中点击一个文件</span>
         </div>
       </div>
     )

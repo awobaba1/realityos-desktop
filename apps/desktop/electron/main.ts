@@ -793,7 +793,7 @@ function registerMediaProtocol() {
 
       const filePath = decodeURIComponent(url.pathname.replace(/^\/+/, ''))
 
-      ;({ resolvedPath } = await resolveReadableFileForIpc(filePath, { purpose: 'Media stream' }))
+      ;({ resolvedPath } = await resolveReadableFileForIpc(filePath, { purpose: '媒体流' }))
     } catch {
       return new Response('找不到媒体', { status: 404 })
     }
@@ -1048,7 +1048,7 @@ function openExternalUrl(rawUrl) {
     let localPath
 
     try {
-      localPath = resolveRequestedPathForIpc(parsed.toString(), { purpose: 'Open external file' })
+      localPath = resolveRequestedPathForIpc(parsed.toString(), { purpose: '打开外部文件' })
     } catch {
       return false
     }
@@ -1121,7 +1121,7 @@ async function openPreviewInBrowser(rawUrl) {
     let localPath
 
     try {
-      localPath = resolveRequestedPathForIpc(parsed.toString(), { purpose: 'Open preview in browser' })
+      localPath = resolveRequestedPathForIpc(parsed.toString(), { purpose: '在浏览器中预览' })
     } catch {
       return false
     }
@@ -1271,7 +1271,7 @@ function broadcastBootstrapEvent(ev) {
     bootstrapState.unsupportedPlatform = null
   } else if (ev.type === 'failed') {
     bootstrapState.active = false
-    bootstrapState.error = ev.error || 'unknown error'
+    bootstrapState.error = ev.error || '未知错误'
   } else if (ev.type === 'unsupported-platform') {
     bootstrapState.active = false
     bootstrapState.unsupportedPlatform = {
@@ -2084,7 +2084,7 @@ async function checkUpdates() {
         supported: true,
         branch,
         error: 'fetch-failed',
-        message: firstLine(target.stderr) || 'git ls-remote failed.',
+        message: firstLine(target.stderr) || 'git ls-remote 失败。',
         hermesRoot: updateRoot,
         fetchedAt: Date.now()
       }
@@ -2111,7 +2111,7 @@ async function checkUpdates() {
       supported: true,
       branch,
       error: 'fetch-failed',
-      message: firstLine(fetched.stderr) || 'git fetch failed.',
+      message: firstLine(fetched.stderr) || 'git fetch 失败。',
       hermesRoot: updateRoot,
       fetchedAt: Date.now()
     }
@@ -3468,7 +3468,7 @@ async function ensureRuntime(backend) {
 
     if (await handOffWindowsBootstrapRecovery('bootstrap-needed')) {
       const handoffError: Error & { isBootstrapFailure?: boolean; bootstrapHandedOff?: boolean } = new Error(
-        'Hermes recovery was handed off to Hermes Setup. The desktop will restart when recovery completes.'
+        'RealityOS 恢复已移交至安装程序，恢复完成后桌面将自动重启。'
       )
 
       handoffError.isBootstrapFailure = true
@@ -3534,9 +3534,9 @@ async function ensureRuntime(backend) {
 
     if (!bootstrapResult.ok) {
       const bootstrapError = new Error(
-        `Hermes bootstrap failed${bootstrapResult.failedStage ? ` at stage '${bootstrapResult.failedStage}'` : ''}: ` +
-          `${bootstrapResult.error || 'unknown error'}. ` +
-          `Check ${path.join(HERMES_HOME, 'logs', 'desktop.log')} for the full transcript.`
+        `RealityOS 首次安装失败${bootstrapResult.failedStage ? `（阶段「${bootstrapResult.failedStage}」）` : ''}：` +
+          `${bootstrapResult.error || '未知错误'}。` +
+          `完整日志见 ${path.join(HERMES_HOME, 'logs', 'desktop.log')}。`
       ) as any
 
       bootstrapError.isBootstrapFailure = true
@@ -4170,7 +4170,7 @@ async function resourceBufferFromUrl(rawUrl) {
   }
 
   if (/^file:/i.test(rawUrl)) {
-    const { resolvedPath } = await resolveReadableFileForIpc(rawUrl, { purpose: 'Image file' })
+    const { resolvedPath } = await resolveReadableFileForIpc(rawUrl, { purpose: '图片文件' })
     const buffer = await fs.promises.readFile(resolvedPath)
 
     return { buffer, mimeType: mimeTypeForPath(resolvedPath) }
@@ -4273,7 +4273,7 @@ async function previewFileTarget(rawTarget, baseDir) {
 
   let resolved = resolveRequestedPathForIpc(/^file:/i.test(raw) ? raw : expandUserPath(raw), {
     baseDir: base,
-    purpose: 'Preview target'
+    purpose: '预览目标'
   })
 
   if (directoryExists(resolved)) {
@@ -4286,7 +4286,7 @@ async function previewFileTarget(rawTarget, baseDir) {
     return null
   }
 
-  ;({ resolvedPath: resolved } = await resolveReadableFileForIpc(resolved, { purpose: 'Preview target' }))
+  ;({ resolvedPath: resolved } = await resolveReadableFileForIpc(resolved, { purpose: '预览目标' }))
 
   const mimeType = mimeTypeForPath(resolved)
   const metadata = previewFileMetadata(resolved, mimeType)
@@ -4352,7 +4352,7 @@ async function normalizePreviewTarget(rawTarget, baseDir) {
 }
 
 async function filePathFromPreviewUrl(rawUrl) {
-  const { resolvedPath } = await resolveReadableFileForIpc(String(rawUrl || ''), { purpose: 'Preview file' })
+  const { resolvedPath } = await resolveReadableFileForIpc(String(rawUrl || ''), { purpose: '预览文件' })
 
   return resolvedPath
 }
@@ -4447,7 +4447,7 @@ async function waitForHermes(baseUrl, token) {
     }
   }
 
-  throw new Error(`Hermes 后端未能就绪：${lastError?.message || 'timeout'}`)
+  throw new Error(`Hermes 后端未能就绪：${lastError?.message || '超时'}`)
 }
 
 function getWindowButtonPosition() {
@@ -4912,19 +4912,19 @@ function installContextMenu(window) {
 
       if (isEditable) {
         template.push(
-          { role: 'cut', enabled: params.editFlags.canCut },
-          { role: 'copy', enabled: params.editFlags.canCopy },
-          { role: 'paste', enabled: params.editFlags.canPaste },
+          { role: 'cut', label: '剪切', enabled: params.editFlags.canCut },
+          { role: 'copy', label: '复制', enabled: params.editFlags.canCopy },
+          { role: 'paste', label: '粘贴', enabled: params.editFlags.canPaste },
           { type: 'separator' },
-          { role: 'selectAll', enabled: params.editFlags.canSelectAll }
+          { role: 'selectAll', label: '全选', enabled: params.editFlags.canSelectAll }
         )
       } else {
-        template.push({ role: 'copy', enabled: params.editFlags.canCopy })
+        template.push({ role: 'copy', label: '复制', enabled: params.editFlags.canCopy })
       }
     }
 
     if (!template.length) {
-      template.push({ role: 'selectAll' })
+      template.push({ role: 'selectAll', label: '全选' })
     }
 
     Menu.buildFromTemplate(template).popup({ window })
@@ -8055,7 +8055,7 @@ ipcMain.handle('hermes:notify', (_event, payload) => {
 ipcMain.handle('hermes:readFileDataUrl', async (_event, filePath) => {
   const { resolvedPath } = await resolveReadableFileForIpc(filePath, {
     maxBytes: DATA_URL_READ_MAX_BYTES,
-    purpose: 'File preview'
+    purpose: '文件预览'
   })
 
   const data = await fs.promises.readFile(resolvedPath)
@@ -8066,7 +8066,7 @@ ipcMain.handle('hermes:readFileDataUrl', async (_event, filePath) => {
 ipcMain.handle('hermes:readFileText', async (_event, filePath) => {
   const { resolvedPath, stat } = await resolveReadableFileForIpc(filePath, {
     maxBytes: TEXT_PREVIEW_SOURCE_MAX_BYTES,
-    purpose: 'Text preview'
+    purpose: '文本预览'
   })
 
   const ext = path.extname(resolvedPath).toLowerCase()
@@ -8137,7 +8137,7 @@ ipcMain.handle('hermes:saveImageBuffer', async (_event, payload) => {
   const data = payload?.data
 
   if (!data) {
-    throw new Error('saveImageBuffer: missing data')
+    throw new Error('saveImageBuffer：缺少数据')
   }
 
   const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data)
@@ -8570,7 +8570,7 @@ ipcMain.handle('hermes:fs:writeText', async (_event, filePath, content) => {
     throw new Error('内容过大')
   }
 
-  const resolved = resolveRequestedPathForIpc(expandUserPath(raw), { purpose: 'Write text file' })
+  const resolved = resolveRequestedPathForIpc(expandUserPath(raw), { purpose: '写入文本文件' })
 
   if (!directoryExists(path.dirname(resolved))) {
     throw new Error('父目录不存在')
@@ -8993,7 +8993,7 @@ async function runDesktopUninstall(mode) {
       runnerArgs = [scriptPath]
     }
   } catch (error) {
-    return { ok: false, error: 'script-write-failed', message: error.message }
+    return { ok: false, error: 'script-write-failed', message: `写入卸载脚本失败：${error.message}` }
   }
 
   try {
@@ -9005,7 +9005,7 @@ async function runDesktopUninstall(mode) {
 
     child.unref()
   } catch (error) {
-    return { ok: false, error: 'spawn-failed', message: error.message }
+    return { ok: false, error: 'spawn-failed', message: `启动卸载程序失败：${error.message}` }
   }
 
   rememberLog(

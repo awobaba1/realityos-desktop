@@ -537,7 +537,7 @@ function ToolEntry({ part }: ToolEntryProps) {
                 {view.detailLabel && <p className={TOOL_SECTION_LABEL_CLASS}>{view.detailLabel}</p>}
                 {view.stdout && (
                   <div className="space-y-0.5">
-                    {view.stderr && <p className={TOOL_SECTION_LABEL_CLASS}>stdout</p>}
+                    {view.stderr && <p className={TOOL_SECTION_LABEL_CLASS}>标准输出</p>}
                     <pre className={cn(TOOL_SECTION_PRE_CLASS, 'whitespace-pre-wrap wrap-anywhere')}>
                       {view.rendersAnsi ? (
                         <AnsiText text={clampForDisplay(view.stdout)} />
@@ -549,7 +549,7 @@ function ToolEntry({ part }: ToolEntryProps) {
                 )}
                 {view.stderr && (
                   <div className={cn('space-y-0.5', view.stdout && 'mt-1.5')}>
-                    <p className={TOOL_SECTION_LABEL_CLASS}>stderr</p>
+                    <p className={TOOL_SECTION_LABEL_CLASS}>标准错误</p>
                     <pre
                       className={cn(
                         TOOL_SECTION_PRE_CLASS,
@@ -595,7 +595,7 @@ function ToolEntry({ part }: ToolEntryProps) {
           )}
           {toolViewMode === 'technical' && isFileEdit && view.inlineDiff && (
             <details className="max-w-full">
-              <summary className={cn(TOOL_SECTION_LABEL_CLASS, 'mb-0 cursor-pointer')}>Tool payload</summary>
+              <summary className={cn(TOOL_SECTION_LABEL_CLASS, 'mb-0 cursor-pointer')}>工具载荷</summary>
               <pre className={cn(TOOL_SECTION_PRE_CLASS, 'mt-1 whitespace-pre-wrap wrap-anywhere')}>
                 {rawTechnicalTrace(part.args, part.result)}
               </pre>

@@ -31,7 +31,7 @@ export const PreviewStatusRow = memo(function PreviewStatusRow({ item, onDismiss
     const target = await normalizeOrLocalPreviewTarget(item.target, item.cwd || undefined)
 
     if (!target) {
-      throw new Error(`Could not open preview target: ${item.target}`)
+      throw new Error(`无法打开预览目标：${item.target}`)
     }
 
     return target
@@ -64,7 +64,7 @@ export const PreviewStatusRow = memo(function PreviewStatusRow({ item, onDismiss
       const bridge = window.hermesDesktop?.openPreviewInBrowser
 
       if (!bridge) {
-        throw new Error('Desktop preview browser bridge is unavailable')
+        throw new Error('桌面预览浏览器桥接不可用')
       }
 
       await bridge((await resolveTarget()).url)

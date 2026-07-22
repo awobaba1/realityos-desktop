@@ -888,8 +888,8 @@ describe('usePromptActions restoreToMessage', () => {
       <Harness onReady={h => (handle = h)} refreshSessions={async () => undefined} requestGateway={requestGateway} />
     )
 
-    await expect(handle!.restoreToMessage('a1')).rejects.toThrow('Could not find the message to restore.')
-    await expect(handle!.restoreToMessage('missing')).rejects.toThrow('Could not find the message to restore.')
+    await expect(handle!.restoreToMessage('a1')).rejects.toThrow('找不到要恢复的消息。')
+    await expect(handle!.restoreToMessage('missing')).rejects.toThrow('找不到要恢复的消息。')
 
     expect(requestGateway).not.toHaveBeenCalled()
   })

@@ -28,10 +28,10 @@ async function revealPluginsDir() {
     const result = await window.hermesDesktop?.openDir?.(`${hermes_home}/desktop-plugins`)
 
     if (result && !result.ok) {
-      notifyError(result.error ?? 'unknown error', 'Could not open the plugins folder')
+      notifyError(result.error ?? '未知错误', '无法打开插件目录')
     }
   } catch (err) {
-    notifyError(err, 'Could not resolve the plugins folder')
+    notifyError(err, '无法解析插件目录')
   }
 }
 

@@ -144,7 +144,7 @@ export function NodeContextMenu({ onClose, onNodeRemoved, target }: NodeContextM
       <Dialog onOpenChange={value => !value && !saving && setEditing(null)} open={Boolean(editing)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Edit {editing?.label}</DialogTitle>
+            <DialogTitle>编辑 {editing?.label}</DialogTitle>
           </DialogHeader>
           <div className="h-80">
             {editing && (
@@ -162,10 +162,10 @@ export function NodeContextMenu({ onClose, onNodeRemoved, target }: NodeContextM
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           <DialogFooter>
             <Button disabled={saving} onClick={() => setEditing(null)} type="button" variant="ghost">
-              Cancel
+              取消
             </Button>
             <Button disabled={saving} onClick={() => void save()}>
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? '保存中…' : '保存'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -186,8 +186,8 @@ export function NodeContextMenu({ onClose, onNodeRemoved, target }: NodeContextM
         />
       ) : (
         <ConfirmDialog
-          confirmLabel="Delete"
-          description="This memory is removed permanently."
+          confirmLabel="删除"
+          description="此记忆将被永久移除。"
           destructive
           dismissOnConfirm
           onClose={() => setDeleting(null)}

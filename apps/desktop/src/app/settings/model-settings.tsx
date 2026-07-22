@@ -172,11 +172,11 @@ function StaleAuxWarning({ applying, onReset, slots, taskLabel }: StaleAuxWarnin
     <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
       <AlertTriangle className="size-3.5 shrink-0" />
       <span className="grow">
-        {slots.length} auxiliary task{slots.length === 1 ? '' : 's'} ({names}) still run on{' '}
-        <span className="font-mono">{allSameProvider ? provider : 'other providers'}</span>, not your main model.
+        仍有 {slots.length} 个辅助任务（{names}）在{' '}
+        <span className="font-mono">{allSameProvider ? provider : '其他 provider'}</span> 上运行，未走主模型。
       </span>
       <Button disabled={applying} onClick={onReset} size="sm" variant="textStrong">
-        Reset all to main
+        全部重置为主模型
       </Button>
     </div>
   )
@@ -719,7 +719,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                       void activateApiKeyProvider()
                     }
                   }}
-                  placeholder={`Paste ${selectedProviderRow?.key_env ?? 'API key'}`}
+                  placeholder={`粘贴 ${selectedProviderRow?.key_env ?? 'API 密钥'}`}
                   type="password"
                   value={apiKeyDraft}
                 />
@@ -729,12 +729,12 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                   size="sm"
                 >
                   {activating && <Loader2 className="size-3.5 animate-spin" />}
-                  {activating ? 'Activating...' : 'Activate'}
+                  {activating ? '激活中…' : '激活'}
                 </Button>
               </>
             ) : (
               <Button onClick={startProviderSetup} size="sm" variant="textStrong">
-                Set up {selectedProviderRow?.name ?? 'provider'}
+                设置 {selectedProviderRow?.name ?? 'provider'}
               </Button>
             )
           ) : (
@@ -936,10 +936,9 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
       </section>
       {moa && currentMoaPreset && (
         <section>
-          <SectionHeading icon={Cpu} title="Mixture of Agents" />
+          <SectionHeading icon={Cpu} title="智能体组合 (MoA)" />
           <p className="mb-2 text-xs text-muted-foreground">
-            Configure named presets that appear as models under the Mixture of Agents provider. The aggregator is the
-            acting model.
+            配置具名预设，它们会作为模型出现在 MoA provider 之下。聚合器即实际生效的模型。
           </p>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Select onValueChange={setSelectedMoaPreset} value={selectedMoaPreset || moa.default_preset}>
@@ -967,7 +966,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
               size="sm"
               variant="text"
             >
-              Set default
+              设为默认
             </Button>
             <Button
               disabled={Object.keys(moa.presets).length <= 1 || applying}
@@ -993,7 +992,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
               size="sm"
               variant="ghost"
             >
-              Delete
+              删除
             </Button>
             <Input
               className={cn('w-40', CONTROL_TEXT)}
@@ -1021,7 +1020,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
               size="sm"
               variant="textStrong"
             >
-              Add preset
+              添加预设
             </Button>
           </div>
           <div className="mb-2 text-xs text-muted-foreground">
@@ -1094,7 +1093,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                       size="sm"
                       variant="ghost"
                     >
-                      Remove
+                      移除
                     </Button>
                   </div>
                 }
@@ -1104,7 +1103,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                   </span>
                 }
                 key={`${selectedMoaPreset}-${index}`}
-                title={`Reference ${index + 1}`}
+                title={`参考 ${index + 1}`}
               />
             ))}
             <Button
@@ -1115,7 +1114,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
               size="sm"
               variant="textStrong"
             >
-              Add reference model
+              添加参考模型
             </Button>
             <ListRow
               below={
@@ -1177,7 +1176,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                   {currentMoaPreset.aggregator.provider} · {currentMoaPreset.aggregator.model}
                 </span>
               }
-              title="Aggregator"
+              title="聚合器"
             />
           </div>
         </section>

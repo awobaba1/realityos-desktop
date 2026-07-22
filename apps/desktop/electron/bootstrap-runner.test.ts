@@ -40,7 +40,7 @@ test('runBootstrap bails immediately when the signal is already aborted', async 
   // Cancelled before any install script is spawned.
   assert.deepEqual(result, { ok: false, cancelled: true })
   assert.ok(
-    events.some(ev => ev.type === 'failed' && /cancelled/i.test(ev.error)),
+    events.some(ev => ev.type === 'failed' && /取消/.test(ev.error)),
     'should emit a cancelled failure event'
   )
 })

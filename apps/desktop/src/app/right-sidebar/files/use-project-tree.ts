@@ -56,7 +56,7 @@ function errorChild(parentId: string, error: string | undefined): TreeNode {
   return {
     id: `${parentId}::${ERROR_PLACEHOLDER_ID}`,
     isDirectory: false,
-    name: `Unable to read (${error || 'read-error'})`,
+    name: `无法读取（${error || '读取错误'}）`,
     placeholder: 'error'
   }
 }

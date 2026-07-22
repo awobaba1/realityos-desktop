@@ -22,24 +22,24 @@ const NEUTRAL_PERSONALITIES = new Set(['', 'default', 'none', 'neutral'])
 
 const FALLBACK_COPY: IntroCopy[] = [
   {
-    headline: 'What are we moving today?',
-    body: "Send a bug, branch, plan, or rough idea. I'll inspect the repo and turn it into the next concrete step."
+    headline: '今天推进什么？',
+    body: '把 bug、分支、计划或粗略想法发过来，我会先勘察仓库，再把它变成下一个具体步骤。'
   },
   {
-    headline: "What's on your mind?",
-    body: "Bring the code, question, or stuck part. I'll read the room before making changes."
+    headline: '在想什么？',
+    body: '把代码、问题或卡住的地方发过来，动手前我会先读懂上下文。'
   },
   {
-    headline: 'What should Hermes look at?',
-    body: "Send the task, failing path, or half-formed plan. I'll help turn it into action."
+    headline: '让 Hermes 看点什么？',
+    body: '把任务、报错路径或半成品计划发过来，我帮你把它变成行动。'
   },
   {
-    headline: 'Where should we start?',
-    body: "Bring the problem, goal, or file. I'll inspect first and keep the next step concrete."
+    headline: '从哪儿开始？',
+    body: '把问题、目标或文件发过来，我会先勘察，再让下一步保持具体。'
   },
   {
-    headline: 'What needs attention?',
-    body: "Send the context you have. I'll help sort it into a plan or a fix."
+    headline: '哪儿要处理？',
+    body: '把手头的上下文发过来，我帮你理成计划或修复方案。'
   }
 ]
 
@@ -118,24 +118,24 @@ function fallbackCopyForPersonality(personalityKey: string): IntroCopy[] {
 
   return [
     {
-      headline: `${label} mode is on. What should we work on?`,
-      body: "Send the task, file, or rough idea. I'll use your configured voice and keep the work grounded in this repo."
+      headline: `${label} 模式已开启，要做点什么？`,
+      body: '把任务、文件或粗略想法发过来，我会用你配置的语调，并把工作扎根在这个仓库里。'
     },
     {
-      headline: `What does ${label} Hermes need to see?`,
-      body: "Bring the context or the stuck part. I'll adapt to your configured personality."
+      headline: `${label} 的 Hermes 要看点什么？`,
+      body: '把上下文或卡住的地方发过来，我会贴合你配置的人格。'
     },
     {
-      headline: `${label} mode is ready.`,
-      body: "Send the problem, file, or idea. I'll follow the personality you've configured."
+      headline: `${label} 模式已就绪。`,
+      body: '把问题、文件或想法发过来，我会遵循你配置的人格。'
     },
     {
-      headline: `What should ${label} Hermes tackle?`,
-      body: "Drop the task here. I'll keep the work grounded in the repo."
+      headline: `${label} 的 Hermes 该处理点什么？`,
+      body: '把任务丢过来，我会把工作扎根在这个仓库里。'
     },
     {
-      headline: 'Where should we begin?',
-      body: `Give me the context and I'll answer in ${label} mode.`
+      headline: '从哪儿开始？',
+      body: `把上下文发给我，我会用 ${label} 模式回复。`
     }
   ]
 }

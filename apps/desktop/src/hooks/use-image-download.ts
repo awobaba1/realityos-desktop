@@ -25,7 +25,7 @@ async function startBrowserDownload(src: string) {
   const response = await fetch(src)
 
   if (!response.ok) {
-    throw new Error(`Could not fetch image: ${response.status}`)
+    throw new Error(`无法获取图像：${response.status}`)
   }
 
   const blobUrl = URL.createObjectURL(await response.blob())

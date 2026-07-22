@@ -196,7 +196,7 @@ export function StarMap({
 
         return null
       } catch (err) {
-        return err instanceof ShareCodeError ? err.message : 'Could not read that map code.'
+        return err instanceof ShareCodeError ? err.message : '无法读取该星图分享码。'
       }
     },
     [onImport]
