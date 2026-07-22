@@ -2328,35 +2328,18 @@ def parse_coauthors(body: str) -> list:
     return results
 
 
-def get_commits(since_tag=None):
-    """Get commits since a tag (or all commits if None)."""
-    if since_tag:
-        range_spec = f"{since_tag}..HEAD"
-    else:
-        range_spec = "HEAD"
+def _parse_log(log: str) -> list[dict]:
+    """Parse a `git log -z --format=...` blob into commit dicts (ADR-V6-079).
 
-    # Format: hash<US>author_name<US>author_email<US>subject\0body\0
-    # Using %x1f (unit separator) to avoid conflict with | in author names.
-    # ADR-V6-079: `-z` NUL-terminates each log entry, so consecutive records
-    # are separated by \0\0 (record's trailing %x00 + -z terminator). Without
-    # -z, git separates entries with \0\n and the split("\0\0") below collapses
-    # the whole range into ONE chunk — silently truncating the changelog to
-    # only the first commit since the last tag (C7 silent failure).
-    log = git(
-        "log", range_spec,
-        "--format=%H%x1f%an%x1f%ae%x1f%s%x00%b%x00",
-        "--no-merges",
-        "-z",
-    )
-
-    if not log:
-        return []
-
+    Extracted from get_commits so the \\0\\0 record-splitting is unit-testable
+    without a live git history — CI runs a shallow clone where arbitrary tags
+    (e.g. v2026.7.26) are absent, so a test that calls get_commits against a
+    real tag fails with git exit 128 there. `-z` NUL-terminates each log
+    record; combined with the format's trailing %x00, records are separated by
+    \\0\\0. The final record leaves a trailing \\0\\0 → one empty chunk, skipped
+    below.
+    """
     commits = []
-    # Split on double-null to get each commit entry. `-z` (above) NUL-terminates
-    # each entry, so the trailing %x00 of one record + the terminator form \0\0
-    # between records (ADR-V6-079). The final record leaves a trailing \0\0 →
-    # one empty trailing chunk, skipped by the `if not entry` guard below.
     for entry in log.split("\0\0"):
         entry = entry.strip()
         if not entry:
@@ -2384,8 +2367,34 @@ def get_commits(since_tag=None):
             "github_author": resolve_author(name, email),
             "coauthors": coauthors,
         })
-
     return commits
+
+
+def get_commits(since_tag=None):
+    """Get commits since a tag (or all commits if None)."""
+    if since_tag:
+        range_spec = f"{since_tag}..HEAD"
+    else:
+        range_spec = "HEAD"
+
+    # Format: hash<US>author_name<US>author_email<US>subject\0body\0
+    # Using %x1f (unit separator) to avoid conflict with | in author names.
+    # ADR-V6-079: `-z` NUL-terminates each log entry, so consecutive records
+    # are separated by \0\0 (record's trailing %x00 + -z terminator). Without
+    # -z, git separates entries with \0\n and the split("\0\0") below collapses
+    # the whole range into ONE chunk — silently truncating the changelog to
+    # only the first commit since the last tag (C7 silent failure).
+    log = git(
+        "log", range_spec,
+        "--format=%H%x1f%an%x1f%ae%x1f%s%x00%b%x00",
+        "--no-merges",
+        "-z",
+    )
+
+    if not log:
+        return []
+
+    return _parse_log(log)
 
 
 def get_pr_number(subject: str) -> str | None:
