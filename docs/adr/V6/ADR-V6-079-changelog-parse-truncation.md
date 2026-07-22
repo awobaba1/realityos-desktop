@@ -67,14 +67,20 @@ split chunks:    6    # 6 块，末块空 → 跳过后得 5 条
 
 ## C4 回归守卫
 
-`tests/scripts/test_adr_v6_079_changelog_parse.py`：
+`tests/scripts/test_adr_v6_079_changelog_parse.py`（**不依赖真实 git 历史** ——
+初版用 `git rev-list v2026.7.26..HEAD` 比对，CI 浅克隆里该 tag 不在场 → git
+exit 128 → 本地（全历史）绿、CI 红，是假绿测试，已重构）：
 
-1. `test_get_commits_returns_all_records_in_range`：动态比对 `get_commits` 与
-   `git rev-list --count v2026.7.26..HEAD --no-merges`，range 须 ≥2。-z 丢失 →
-   只剩 1 条 → 断言失败。
-2. `_normalize_repo_url` × 4：SSH / SSH 无 .git / HTTPS 带 .git / ssh:// scheme，
+1. `test_parse_log_splits_all_z_separated_records`：把 get_commits 的记录解析循环
+   抽成纯函数 `_parse_log(log)`，喂**合成** `\0\0` 分隔多记录串，断言 3 条全解析
+   （parse 逻辑守卫，不碰 git 历史）。
+2. `test_get_commits_source_uses_z_flag`：源码 binding —— release.py 的 git log
+   调用必须含 `-z`（防 -z 被删后回归塌缩成 1 块）。
+3. `test_get_commits_runs_and_parses_head`：`get_commits(since_tag=None)` 用 range
+   HEAD（浅克隆 HEAD 恒在）端到端冒烟。
+4. `_normalize_repo_url` × 4：SSH / SSH 无 .git / HTTPS 带 .git / ssh:// scheme，
    锁定归一化逻辑。
-3. `test_get_repo_url_resolves_to_fork_not_upstream`：集成校验 URL 不含
+5. `test_get_repo_url_resolves_to_fork_not_upstream`：集成校验 URL 不含
    `NousResearch`、指向 `realityos-desktop` fork。
 
 ## 教训
@@ -87,3 +93,7 @@ split chunks:    6    # 6 块，末块空 → 跳过后得 5 条
   同类。
 - **fork 必须用自己的 repo_url**：上游链接在 fork 上 404。从 `git remote get-url
   origin` 派生比硬编码更鲁棒（仓库改名/迁移自适应）。
+- **测试别依赖 CI 没有的 git 历史**：CI 多为浅克隆，任意 tag/旧提交不在场。初版
+  守卫 `git rev-list v2026.7.26..HEAD` 在 CI exit 128 → 本地全历史绿、CI 红 = 假绿
+  测试（反假绿纪律在切 release 前拦下了 39dd837b4）。涉及 git 历史的解析逻辑应抽
+  成纯函数、用**合成输入**单测；端到端冒烟只用 HEAD 等恒在引用。
