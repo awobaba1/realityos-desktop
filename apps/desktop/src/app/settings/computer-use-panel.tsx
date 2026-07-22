@@ -146,11 +146,7 @@ export function ComputerUsePanel({ onConfiguredChange }: ComputerUsePanelProps) 
   }
 
   if (!status.platform_supported) {
-    return (
-      <p className="px-1 text-xs text-muted-foreground">
-        此平台不支持 Computer Use（{status.platform}）。
-      </p>
-    )
+    return <p className="px-1 text-xs text-muted-foreground">此平台不支持 Computer Use（{status.platform}）。</p>
   }
 
   if (!status.installed) {
@@ -170,7 +166,8 @@ export function ComputerUsePanel({ onConfiguredChange }: ComputerUsePanelProps) 
         <div className="min-w-0">
           {status.can_grant ? (
             <p className="text-[0.72rem] text-muted-foreground">
-              授权会绑定到 CuaDriver 自己的身份（com.trycua.driver），而非 Hermes — 因此对话框会归属于驱动你 Mac 的进程。
+              授权会绑定到 CuaDriver 自己的身份（com.trycua.driver），而非 Hermes — 因此对话框会归属于驱动你 Mac
+              的进程。
             </p>
           ) : (
             <p className="text-[0.72rem] text-muted-foreground">{PLATFORM_NOTE[status.platform] ?? ''}</p>

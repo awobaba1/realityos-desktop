@@ -338,8 +338,7 @@ describe('OAuth onboarding', () => {
           },
           code: 'fresh-code'
         },
-        reason:
-          'No access token found for Nous Portal login. setup.status 报告已配置凭证，但运行时解析仍然失败。',
+        reason: 'No access token found for Nous Portal login. setup.status 报告已配置凭证，但运行时解析仍然失败。',
         requested: true
       })
     )

@@ -1392,11 +1392,7 @@ async function waitForUpdateToFinish() {
   const deadline = Date.now() + UPDATE_WAIT_TIMEOUT_MS
 
   while (marker && Date.now() < deadline) {
-    await advanceBootProgress(
-      'backend.update-wait',
-      '更新即将完成 — RealityOS 将在更新完成后自动启动…',
-      12
-    )
+    await advanceBootProgress('backend.update-wait', '更新即将完成 — RealityOS 将在更新完成后自动启动…', 12)
     await new Promise(r => setTimeout(r, UPDATE_WAIT_POLL_MS))
     marker = readLiveUpdateMarker(HERMES_HOME)
   }
@@ -2888,9 +2884,7 @@ async function applyUpdatesPosixInApp(opts: any) {
     if (outcome === 'guiSkew') {
       emitUpdateProgress({
         stage: 'guiSkew',
-        message:
-          '后端已更新，但桌面应用包未更改。' +
-          '请更新或重新安装 Hermes 桌面应用以保持一致。',
+        message: '后端已更新，但桌面应用包未更改。' + '请更新或重新安装 Hermes 桌面应用以保持一致。',
         percent: 100
       })
       rememberLog(
@@ -3563,8 +3557,7 @@ async function ensureRuntime(backend) {
   // attests they ran successfully).
   if (!isHermesSourceRoot(ACTIVE_HERMES_ROOT)) {
     throw new Error(
-      `位于 ${ACTIVE_HERMES_ROOT} 的 Hermes 安装缺失或不完整。` +
-        '请通过桌面安装程序或 scripts/install.ps1 重新安装。'
+      `位于 ${ACTIVE_HERMES_ROOT} 的 Hermes 安装缺失或不完整。` + '请通过桌面安装程序或 scripts/install.ps1 重新安装。'
     )
   }
 
@@ -3577,7 +3570,7 @@ async function ensureRuntime(backend) {
   if (IS_WINDOWS && !findGitBash()) {
     throw new Error(
       '在 Windows 上运行 Hermes 需要 Git for Windows（提供 Git Bash，' +
-        "agent 的终端工具会用到它）。请从 " +
+        'agent 的终端工具会用到它）。请从 ' +
         'https://git-scm.com/download/win 安装，或运行 `winget install -e --id Git.Git`，' +
         '然后重新启动 Hermes。'
     )
@@ -5613,6 +5606,7 @@ async function discoverCloudAgents(org?: string) {
       const err = new Error(
         'Your RealityOS Cloud session has expired. Open Settings → Gateway and sign in again.'
       ) as any
+
       err.needsCloudLogin = true
       err.cause = error
       throw err
@@ -6055,8 +6049,7 @@ async function buildRemoteConnection(rawUrl, authMode, token, source) {
     // the authoritative liveness check.
     if (!(await hasLiveOauthSession(baseUrl))) {
       const err = new Error(
-        '远程 RealityOS 网关使用 OAuth，但您尚未登录。' +
-          '请打开 设置 → 网关 并点击 "登录"，或切换回 本地。'
+        '远程 RealityOS 网关使用 OAuth，但您尚未登录。' + '请打开 设置 → 网关 并点击 "登录"，或切换回 本地。'
       ) as any
 
       err.needsOauthLogin = true
@@ -6068,9 +6061,7 @@ async function buildRemoteConnection(rawUrl, authMode, token, source) {
     try {
       ticket = await mintGatewayWsTicket(baseUrl)
     } catch (error) {
-      const err = new Error(
-        '您的远程网关会话已过期。' + '请打开 设置 → 网关 并再次点击 "登录"。'
-      ) as any
+      const err = new Error('您的远程网关会话已过期。' + '请打开 设置 → 网关 并再次点击 "登录"。') as any
 
       err.needsOauthLogin = true
       err.cause = error
@@ -6089,10 +6080,7 @@ async function buildRemoteConnection(rawUrl, authMode, token, source) {
   }
 
   if (!token) {
-    throw new Error(
-      '已选择远程 RealityOS 网关，但未保存会话令牌。' +
-        '请打开 设置 → 网关 并保存令牌，或切换回 本地。'
-    )
+    throw new Error('已选择远程 RealityOS 网关，但未保存会话令牌。' + '请打开 设置 → 网关 并保存令牌，或切换回 本地。')
   }
 
   return {
@@ -6627,9 +6615,7 @@ async function spawnPoolBackend(profile, entry) {
     backendPool.delete(profile)
 
     if (!ready) {
-      rejectStart?.(
-        new Error(`配置文件 "${profile}" 的 Hermes 后端在就绪前已退出（${signal || code}）。`)
-      )
+      rejectStart?.(new Error(`配置文件 "${profile}" 的 Hermes 后端在就绪前已退出（${signal || code}）。`))
     }
   })
 

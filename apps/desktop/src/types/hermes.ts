@@ -1068,8 +1068,14 @@ export interface InsightReportResponse {
 /** Read-only PTG memory browser payload (ADR-V6-021). */
 export type MemoryBrowseStatus = 'ok' | 'no_data' | 'error'
 export type AtomType =
-  | 'R3_Person' | 'R2_Task' | 'R7_Expression' | 'R8_Cognition'
-  | 'R12_Outcome' | 'R1_SelfState' | 'R9_Emotion' | 'R0_Entity'
+  | 'R3_Person'
+  | 'R2_Task'
+  | 'R7_Expression'
+  | 'R8_Cognition'
+  | 'R12_Outcome'
+  | 'R1_SelfState'
+  | 'R9_Emotion'
+  | 'R0_Entity'
 
 export interface MemoryAtom {
   type: AtomType

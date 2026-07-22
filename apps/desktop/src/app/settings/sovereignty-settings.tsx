@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import {
-  deleteSovereigntyData,
-  exportSovereigntyData,
-  getMinorMode,
-  setMinorMode
-} from '@/hermes'
+import { deleteSovereigntyData, exportSovereigntyData, getMinorMode, setMinorMode } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { Download, Loader2, Lock, Trash2 } from '@/lib/icons'
 
@@ -144,10 +139,7 @@ export function SovereigntySettings() {
         </header>
 
         {statusMsg && (
-          <div
-            className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs"
-            role="status"
-          >
+          <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs" role="status">
             {statusMsg}
           </div>
         )}
@@ -155,12 +147,7 @@ export function SovereigntySettings() {
         <section>
           <SectionHeading icon={Download} title={s.exportTitle} />
           <p className="mt-1 text-xs text-muted-foreground">{s.exportDesc}</p>
-          <Button
-            className="mt-2"
-            disabled={exportBusy}
-            onClick={() => void handleExport()}
-            size="sm"
-          >
+          <Button className="mt-2" disabled={exportBusy} onClick={() => void handleExport()} size="sm">
             {exportBusy ? <Loader2 className="size-3 animate-spin" /> : <Download className="size-3" />}
             {s.exportBtn}
           </Button>
@@ -170,18 +157,10 @@ export function SovereigntySettings() {
           <SectionHeading icon={Trash2} title={s.deleteTitle} />
           <p className="mt-1 text-xs text-muted-foreground">{s.deleteDesc}</p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <Button
-              onClick={() => setDeleteMode('A')}
-              size="sm"
-              variant={deleteMode === 'A' ? 'textStrong' : 'text'}
-            >
+            <Button onClick={() => setDeleteMode('A')} size="sm" variant={deleteMode === 'A' ? 'textStrong' : 'text'}>
               {s.deleteModeA}
             </Button>
-            <Button
-              onClick={() => setDeleteMode('B')}
-              size="sm"
-              variant={deleteMode === 'B' ? 'textStrong' : 'text'}
-            >
+            <Button onClick={() => setDeleteMode('B')} size="sm" variant={deleteMode === 'B' ? 'textStrong' : 'text'}>
               {s.deleteModeB}
             </Button>
           </div>

@@ -79,7 +79,9 @@ function ReportPanel({ kind }: { kind: TabKind }) {
 
   const load = useCallback(
     async (force: boolean) => {
-      if (force) {setState(s => ({ ...s, refreshing: true }))}
+      if (force) {
+        setState(s => ({ ...s, refreshing: true }))
+      }
 
       try {
         const data = await fetcher({ force })
@@ -127,9 +129,7 @@ function ReportPanel({ kind }: { kind: TabKind }) {
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <SufficiencyBadge sufficiency={data.data_sufficiency} />
-            <span className="text-xs text-muted-foreground">
-              {ti.periodLabel(data.period_start, data.period_end)}
-            </span>
+            <span className="text-xs text-muted-foreground">{ti.periodLabel(data.period_start, data.period_end)}</span>
           </div>
           <Button
             disabled={state.refreshing}
@@ -150,10 +150,7 @@ function ReportPanel({ kind }: { kind: TabKind }) {
         )}
 
         <article
-          className={cn(
-            'prose prose-sm max-w-none dark:prose-invert',
-            isPlaceholder && 'opacity-70'
-          )}
+          className={cn('prose prose-sm max-w-none dark:prose-invert', isPlaceholder && 'opacity-70')}
           data-insight-content={kind}
         >
           {data.content ? (
@@ -167,11 +164,7 @@ function ReportPanel({ kind }: { kind: TabKind }) {
   )
 }
 
-function SufficiencyBadge({
-  sufficiency
-}: {
-  sufficiency: InsightReportResponse['data_sufficiency']
-}) {
+function SufficiencyBadge({ sufficiency }: { sufficiency: InsightReportResponse['data_sufficiency'] }) {
   const { t } = useI18n()
   const ti = t.insights
 

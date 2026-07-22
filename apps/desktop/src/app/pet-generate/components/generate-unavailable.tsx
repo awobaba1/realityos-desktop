@@ -16,9 +16,7 @@ export function GenerateUnavailable({ onSetup }: GenerateUnavailableProps) {
         <PawPrint className="size-5" />
       </span>
       <div className="space-y-1.5">
-        <p className="text-[length:var(--conversation-text-font-size)] font-semibold">
-          添加图像后端以生成
-        </p>
+        <p className="text-[length:var(--conversation-text-font-size)] font-semibold">添加图像后端以生成</p>
         <p className="mx-auto max-w-[19rem] text-[length:var(--conversation-caption-font-size)] leading-relaxed text-(--ui-text-tertiary)">
           孵化自定义宠物需要一个能基于参考图像生成的服务商。
         </p>

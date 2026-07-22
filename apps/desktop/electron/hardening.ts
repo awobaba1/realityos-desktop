@@ -53,8 +53,7 @@ function encryptDesktopSecret(value, safeStorageApi) {
   } catch (error) {
     const detail = error instanceof Error && error.message ? ` (${error.message})` : ''
     throw new Error(
-      `加密远程网关令牌失败${detail}。` +
-        '可改用环境变量 HERMES_DESKTOP_REMOTE_URL 与 HERMES_DESKTOP_REMOTE_TOKEN。'
+      `加密远程网关令牌失败${detail}。` + '可改用环境变量 HERMES_DESKTOP_REMOTE_URL 与 HERMES_DESKTOP_REMOTE_TOKEN。'
     )
   }
 }

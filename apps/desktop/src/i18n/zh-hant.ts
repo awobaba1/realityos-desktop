@@ -352,7 +352,8 @@ export const zhHant = defineLocale({
         title: '寵物',
         intro:
           '領養一隻懸浮在應用上的 petdex 動畫寵物，它會根據 RealityOS 的狀態做出反應——工具執行時奔跑、成功時歡呼、出錯時沮喪。',
-        restartHint: '寵物功能需要重新啟動——目前執行的應用在此功能加入前啟動。請結束並重新開啟 RealityOS，然後回到此處。',
+        restartHint:
+          '寵物功能需要重新啟動——目前執行的應用在此功能加入前啟動。請結束並重新開啟 RealityOS，然後回到此處。',
         scaleTitle: '大小',
         scaleDesc: '調整懸浮寵物的大小，所有介面即時生效。',
         roamTitle: '漫遊',
@@ -1466,7 +1467,7 @@ export const zhHant = defineLocale({
     sufficiencySufficient: '資料充分',
     sufficiencyPartial: '資料有限',
     sufficiencyInsufficient: '暖機中',
-    periodLabel: (start, end) => (start && end ? `${start} ～ ${end}` : start ?? '')
+    periodLabel: (start, end) => (start && end ? `${start} ～ ${end}` : (start ?? ''))
   },
 
   memory: {
@@ -1474,8 +1475,8 @@ export const zhHant = defineLocale({
     tabAtoms: '時間線',
     tabEntities: '人物與實體',
     tabRelations: '關係',
-    memoCountLabel: (count) => (count != null ? `${count} 條記錄` : ''),
-    memberSinceLabel: (date) => (date ? `始於 ${date.slice(0, 10)}` : ''),
+    memoCountLabel: count => (count != null ? `${count} 條記錄` : ''),
+    memberSinceLabel: date => (date ? `始於 ${date.slice(0, 10)}` : ''),
     noDataTitle: '還沒有記憶',
     noDataDesc: '繼續和我聊幾天，我就能幫你把人和事記下來。',
     errorTitle: '暫時打不開',
@@ -1501,9 +1502,9 @@ export const zhHant = defineLocale({
     entityTypeTask: '任務',
     entityTypeTopic: '主題',
     entityTypeContext: '地點/機構',
-    mentionsLabel: (count) => `${count} 次提及`,
+    mentionsLabel: count => `${count} 次提及`,
     confidenceLabel: '置信',
-    aliasesLabel: '別名',
+    aliasesLabel: '別名'
   },
 
   sidebar: {

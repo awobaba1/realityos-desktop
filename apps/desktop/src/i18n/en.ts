@@ -348,7 +348,8 @@ export const en: Translations = {
       exportBtn: 'Export JSON',
       exportFailed: 'Export failed, please retry shortly.',
       deleteTitle: 'Delete a window of memory',
-      deleteDesc: 'Soft delete (recoverable via the developer within 1 day). Physical purge runs separately as nightly maintenance.',
+      deleteDesc:
+        'Soft delete (recoverable via the developer within 1 day). Physical purge runs separately as nightly maintenance.',
       deleteModeA: 'Mode A: memos only',
       deleteModeADesc: 'Reclaim space — removes only the raw messages, keeping extracted atoms and relations.',
       deleteModeB: 'Mode B: total forgetting',
@@ -443,7 +444,8 @@ export const en: Translations = {
       backdropTitle: 'Chat Backdrop',
       backdropDesc: 'The faint statue image behind the conversation.',
       launchViewTitle: 'Default View on Launch',
-      launchViewDesc: 'Which page the app opens on. Chat resumes your last conversation; Memory and Insights always open there first.',
+      launchViewDesc:
+        'Which page the app opens on. Chat resumes your last conversation; Memory and Insights always open there first.',
       launchViewChat: 'Chat',
       launchViewMemory: 'Memory',
       launchViewInsights: 'Insights',
@@ -1591,7 +1593,7 @@ export const en: Translations = {
     sufficiencySufficient: 'Enough data',
     sufficiencyPartial: 'Limited data',
     sufficiencyInsufficient: 'Warming up',
-    periodLabel: (start, end) => (start && end ? `${start} – ${end}` : start ?? '')
+    periodLabel: (start, end) => (start && end ? `${start} – ${end}` : (start ?? ''))
   },
 
   memory: {
@@ -1599,8 +1601,8 @@ export const en: Translations = {
     tabAtoms: 'Timeline',
     tabEntities: 'People & entities',
     tabRelations: 'Relations',
-    memoCountLabel: (count) => (count != null ? `${count} notes` : ''),
-    memberSinceLabel: (date) => (date ? `since ${date.slice(0, 10)}` : ''),
+    memoCountLabel: count => (count != null ? `${count} notes` : ''),
+    memberSinceLabel: date => (date ? `since ${date.slice(0, 10)}` : ''),
     noDataTitle: 'No memories yet',
     noDataDesc: 'Chat with me for a few days and I will remember the people and things you mention.',
     errorTitle: 'Could not open',
@@ -1626,9 +1628,9 @@ export const en: Translations = {
     entityTypeTask: 'Task',
     entityTypeTopic: 'Topic',
     entityTypeContext: 'Place/Org',
-    mentionsLabel: (count) => `${count} mention${count === 1 ? '' : 's'}`,
+    mentionsLabel: count => `${count} mention${count === 1 ? '' : 's'}`,
     confidenceLabel: 'confidence',
-    aliasesLabel: 'also known as',
+    aliasesLabel: 'also known as'
   },
 
   sidebar: {
@@ -1980,7 +1982,8 @@ export const en: Translations = {
     maybeLater: 'Maybe later',
     moreChanges: count => `+ ${count} more change${count === 1 ? '' : 's'} included.`,
     manualTitle: 'Update from your terminal',
-    manualBody: 'You installed RealityOS from the command line, so updates run there too. Paste this into your terminal:',
+    manualBody:
+      'You installed RealityOS from the command line, so updates run there too. Paste this into your terminal:',
     manualPickedUp: 'RealityOS will pick up the new version next time you launch it.',
     guiSkewTitle: 'Update the desktop app',
     guiSkewBody:
@@ -2073,7 +2076,8 @@ export const en: Translations = {
       xai: { short: 'Grok models', description: 'Direct access to xAI Grok models.' },
       local: {
         short: 'self-hosted',
-        description: 'Point RealityOS at a local or self-hosted OpenAI-compatible endpoint (vLLM, llama.cpp, Ollama, etc).'
+        description:
+          'Point RealityOS at a local or self-hosted OpenAI-compatible endpoint (vLLM, llama.cpp, Ollama, etc).'
       }
     },
     backToSignIn: 'Back to sign in',

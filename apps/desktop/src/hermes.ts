@@ -1269,9 +1269,13 @@ export function getInsightReport(
 ): Promise<InsightReportResponse> {
   const query = new URLSearchParams()
 
-  if (params.date) {query.set('date', params.date)}
+  if (params.date) {
+    query.set('date', params.date)
+  }
 
-  if (params.force) {query.set('force', 'true')}
+  if (params.force) {
+    query.set('force', 'true')
+  }
   const qs = query.toString()
 
   return window.hermesDesktop.api<InsightReportResponse>({
@@ -1291,7 +1295,9 @@ export function getDailyReport(params: { date?: string; force?: boolean } = {}):
 export function getMemoryBrowse(params: { limit?: number } = {}): Promise<MemoryBrowseResponse> {
   const query = new URLSearchParams()
 
-  if (params.limit) {query.set('limit', String(params.limit))}
+  if (params.limit) {
+    query.set('limit', String(params.limit))
+  }
   const qs = query.toString()
 
   return window.hermesDesktop.api<MemoryBrowseResponse>({

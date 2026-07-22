@@ -9,13 +9,7 @@ import { useI18n } from '@/i18n'
 import { Loader2, RefreshCw } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { notifyError } from '@/store/notifications'
-import type {
-  AtomType,
-  MemoryAtom,
-  MemoryBrowseResponse,
-  MemoryEntity,
-  MemoryRelation
-} from '@/types/hermes'
+import type { AtomType, MemoryAtom, MemoryBrowseResponse, MemoryEntity, MemoryRelation } from '@/types/hermes'
 
 type TabKey = 'atoms' | 'entities' | 'relations'
 
@@ -45,7 +39,9 @@ export function MemoryPage() {
 
   const load = useCallback(
     async (force: boolean) => {
-      if (force) {setRefreshing(true)}
+      if (force) {
+        setRefreshing(true)
+      }
 
       try {
         setData(await getMemoryBrowse({ limit: 200 }))
@@ -89,22 +85,12 @@ export function MemoryPage() {
       <header className="flex items-center justify-between gap-3 border-b border-(--ui-stroke-secondary) px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <h1 className="truncate text-xs font-medium text-(--ui-text-secondary)">{tm.title}</h1>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {tm.memoCountLabel(data.memo_count)}
-          </span>
+          <span className="shrink-0 text-xs text-muted-foreground">{tm.memoCountLabel(data.memo_count)}</span>
           {data.created_at && (
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {tm.memberSinceLabel(data.created_at)}
-            </span>
+            <span className="shrink-0 text-xs text-muted-foreground">{tm.memberSinceLabel(data.created_at)}</span>
           )}
         </div>
-        <Button
-          disabled={refreshing}
-          onClick={() => void load(true)}
-          size="xs"
-          title={tm.refreshHelp}
-          variant="ghost"
-        >
+        <Button disabled={refreshing} onClick={() => void load(true)} size="xs" title={tm.refreshHelp} variant="ghost">
           {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
           {tm.refresh}
         </Button>
@@ -150,7 +136,17 @@ const TYPE_BADGE: Record<AtomType, 'default' | 'warn' | 'muted'> = {
   R0_Entity: 'muted'
 }
 
-const TYPE_LABEL_KEY: Record<AtomType, 'typePerson' | 'typeTask' | 'typeExpression' | 'typeCognition' | 'typeOutcome' | 'typeSelfState' | 'typeEmotion' | 'typeEntity'> = {
+const TYPE_LABEL_KEY: Record<
+  AtomType,
+  | 'typePerson'
+  | 'typeTask'
+  | 'typeExpression'
+  | 'typeCognition'
+  | 'typeOutcome'
+  | 'typeSelfState'
+  | 'typeEmotion'
+  | 'typeEntity'
+> = {
   R3_Person: 'typePerson',
   R2_Task: 'typeTask',
   R7_Expression: 'typeExpression',
@@ -189,9 +185,7 @@ function AtomsPanel({ atoms }: { atoms: MemoryAtom[] }) {
           {atomDetails(atom).length > 0 && (
             <p className="mt-0.5 text-xs text-muted-foreground">{atomDetails(atom).join(' · ')}</p>
           )}
-          {atom.timestamp && (
-            <p className="mt-0.5 text-[10px] text-muted-foreground">{formatTs(atom.timestamp)}</p>
-          )}
+          {atom.timestamp && <p className="mt-0.5 text-[10px] text-muted-foreground">{formatTs(atom.timestamp)}</p>}
         </li>
       ))}
     </ul>
@@ -202,23 +196,32 @@ function atomPrimary(a: MemoryAtom): string {
   const f = a.fields as Record<string, unknown>
 
   switch (a.type) {
-    case 'R3_Person': return String(f.person_name ?? '')
+    case 'R3_Person':
+      return String(f.person_name ?? '')
 
-    case 'R2_Task': return String(f.task_description ?? '')
+    case 'R2_Task':
+      return String(f.task_description ?? '')
 
-    case 'R7_Expression': return String(f.content_summary ?? f.intent_class ?? '')
+    case 'R7_Expression':
+      return String(f.content_summary ?? f.intent_class ?? '')
 
-    case 'R8_Cognition': return String(f.topic ?? '')
+    case 'R8_Cognition':
+      return String(f.topic ?? '')
 
-    case 'R12_Outcome': return String(f.task_ref ?? '')
+    case 'R12_Outcome':
+      return String(f.task_ref ?? '')
 
-    case 'R1_SelfState': return [f.state_type, f.direction, f.intensity].filter(Boolean).join(' · ')
+    case 'R1_SelfState':
+      return [f.state_type, f.direction, f.intensity].filter(Boolean).join(' · ')
 
-    case 'R9_Emotion': return String(f.emotion_label ?? '')
+    case 'R9_Emotion':
+      return String(f.emotion_label ?? '')
 
-    case 'R0_Entity': return String(f.entity_name ?? '')
+    case 'R0_Entity':
+      return String(f.entity_name ?? '')
 
-    default: return ''
+    default:
+      return ''
   }
 }
 
@@ -228,54 +231,84 @@ function atomDetails(a: MemoryAtom): string[] {
 
   switch (a.type) {
     case 'R3_Person':
-      if (f.mention_context) {out.push(String(f.mention_context))}
+      if (f.mention_context) {
+        out.push(String(f.mention_context))
+      }
 
-      if (f.sentiment) {out.push(String(f.sentiment))}
+      if (f.sentiment) {
+        out.push(String(f.sentiment))
+      }
 
-      if (f.interaction_type) {out.push(String(f.interaction_type))}
+      if (f.interaction_type) {
+        out.push(String(f.interaction_type))
+      }
 
       break
 
     case 'R2_Task':
-      if (f.urgency) {out.push(`${f.urgency}`)}
+      if (f.urgency) {
+        out.push(`${f.urgency}`)
+      }
 
-      if (f.deadline) {out.push(`⏰ ${f.deadline}`)}
+      if (f.deadline) {
+        out.push(`⏰ ${f.deadline}`)
+      }
 
       break
 
     case 'R7_Expression':
-      if (f.intent_class) {out.push(String(f.intent_class))}
+      if (f.intent_class) {
+        out.push(String(f.intent_class))
+      }
 
       break
 
     case 'R8_Cognition':
-      if (f.engagement) {out.push(String(f.engagement))}
+      if (f.engagement) {
+        out.push(String(f.engagement))
+      }
 
-      if (f.is_question) {out.push('?')}
+      if (f.is_question) {
+        out.push('?')
+      }
       pushTags(out, f.knowledge_tags)
 
       break
 
     case 'R12_Outcome':
-      if (f.outcome) {out.push(String(f.outcome))}
+      if (f.outcome) {
+        out.push(String(f.outcome))
+      }
 
-      if (f.resolution_note) {out.push(String(f.resolution_note))}
+      if (f.resolution_note) {
+        out.push(String(f.resolution_note))
+      }
 
       break
 
     case 'R9_Emotion':
-      if (f.valence) {out.push(String(f.valence))}
+      if (f.valence) {
+        out.push(String(f.valence))
+      }
 
-      if (f.arousal) {out.push(String(f.arousal))}
+      if (f.arousal) {
+        out.push(String(f.arousal))
+      }
 
-      if (f.trigger) {out.push(String(f.trigger))}
+      if (f.trigger) {
+        out.push(String(f.trigger))
+      }
 
       break
 
     case 'R0_Entity':
-      if (f.entity_category) {out.push(String(f.entity_category))}
+      if (f.entity_category) {
+        out.push(String(f.entity_category))
+      }
 
-      if (f.mention_context) {out.push(String(f.mention_context))}
+      if (f.mention_context) {
+        out.push(String(f.mention_context))
+      }
 
       break
 
@@ -291,7 +324,9 @@ function atomDetails(a: MemoryAtom): string[] {
 function pushTags(out: string[], tags: unknown): void {
   if (Array.isArray(tags)) {
     for (const tag of tags) {
-      if (tag) {out.push(`#${tag}`)}
+      if (tag) {
+        out.push(`#${tag}`)
+      }
     }
   }
 }
@@ -299,14 +334,19 @@ function pushTags(out: string[], tags: unknown): void {
 function formatTs(ts: string): string {
   const d = new Date(ts)
 
-  if (Number.isNaN(d.getTime())) {return ts}
+  if (Number.isNaN(d.getTime())) {
+    return ts
+  }
 
   return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
 }
 
 // ── entities ─────────────────────────────────────────────────────────────────
 
-const ENTITY_TYPE_LABEL_KEY: Record<string, 'entityTypePerson' | 'entityTypeTask' | 'entityTypeTopic' | 'entityTypeContext'> = {
+const ENTITY_TYPE_LABEL_KEY: Record<
+  string,
+  'entityTypePerson' | 'entityTypeTask' | 'entityTypeTopic' | 'entityTypeContext'
+> = {
   person: 'entityTypePerson',
   task: 'entityTypeTask',
   topic: 'entityTypeTopic',
@@ -368,7 +408,8 @@ function RelationsPanel({ relations }: { relations: MemoryRelation[] }) {
           <div className="flex items-center gap-2 text-sm text-(--ui-text-primary)">
             <span className="font-medium">{r.subject_name}</span>
             <span className="text-xs text-muted-foreground">
-              —{r.relation_type}{r.value ? `: ${r.value}` : ''}→
+              —{r.relation_type}
+              {r.value ? `: ${r.value}` : ''}→
             </span>
             <span className="font-medium">{r.object_name}</span>
           </div>

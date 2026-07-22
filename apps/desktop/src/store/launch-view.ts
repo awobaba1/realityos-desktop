@@ -27,9 +27,13 @@ export function getLaunchView(): LaunchView {
  *  'chat' — meaning "no override, fall through to the legacy resume behavior".
  *  Paths match the contributed routes registered in contrib/controller.tsx. */
 export function launchViewRoute(view: LaunchView): null | string {
-  if (view === 'memory') {return '/memory'}
+  if (view === 'memory') {
+    return '/memory'
+  }
 
-  if (view === 'insights') {return '/insights'}
+  if (view === 'insights') {
+    return '/insights'
+  }
 
   return null
 }

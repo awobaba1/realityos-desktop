@@ -146,9 +146,7 @@ function downloadInstallScript(commit, destPath) {
             .get(res.headers.location, res2 => {
               if (res2.statusCode !== 200) {
                 reject(
-                  new Error(
-                    `下载 ${scriptName} 失败：HTTP ${res2.statusCode}（来自重定向 ${res.headers.location}）`
-                  )
+                  new Error(`下载 ${scriptName} 失败：HTTP ${res2.statusCode}（来自重定向 ${res.headers.location}）`)
                 )
 
                 return
@@ -231,8 +229,7 @@ async function resolveInstallScript({
   // 2. Packaged path: download from GitHub at the pinned commit (1B's stamp).
   if (!installStamp || !installStamp.commit || !STAMP_COMMIT_RE.test(installStamp.commit)) {
     throw new Error(
-      `无法定位 ${installScriptName()}：缺少 SOURCE_REPO_ROOT 与 install stamp。` +
-        '此打包构建未带有效的构建期 stamp。'
+      `无法定位 ${installScriptName()}：缺少 SOURCE_REPO_ROOT 与 install stamp。` + '此打包构建未带有效的构建期 stamp。'
     )
   }
 

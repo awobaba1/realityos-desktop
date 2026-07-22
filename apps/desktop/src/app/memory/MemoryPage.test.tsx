@@ -18,20 +18,40 @@ function payload(over: Partial<MemoryBrowseResponse> = {}): MemoryBrowseResponse
   return {
     status: 'ok',
     atoms: [
-      { type: 'R3_Person', confidence: 0.9, timestamp: '2026-07-14T05:00:00+00:00',
-        fields: { person_name: '张三', mention_context: '晚餐聊了项目', sentiment: 'positive' } },
-      { type: 'R2_Task', confidence: 0.85, timestamp: '2026-07-14T06:00:00+00:00',
-        fields: { task_description: '写述职报告', urgency: 'high', deadline: '2026-07-15' } },
-      { type: 'R0_Entity', confidence: 0.8, timestamp: '2026-07-14T08:00:00+00:00',
-        fields: { entity_name: '国金证券', entity_category: 'organization' } }
+      {
+        type: 'R3_Person',
+        confidence: 0.9,
+        timestamp: '2026-07-14T05:00:00+00:00',
+        fields: { person_name: '张三', mention_context: '晚餐聊了项目', sentiment: 'positive' }
+      },
+      {
+        type: 'R2_Task',
+        confidence: 0.85,
+        timestamp: '2026-07-14T06:00:00+00:00',
+        fields: { task_description: '写述职报告', urgency: 'high', deadline: '2026-07-15' }
+      },
+      {
+        type: 'R0_Entity',
+        confidence: 0.8,
+        timestamp: '2026-07-14T08:00:00+00:00',
+        fields: { entity_name: '国金证券', entity_category: 'organization' }
+      }
     ],
     entities: [
       { entity_name: '张三', entity_type: 'person', mention_count: 5, aliases: ['老张'] },
       { entity_name: '国金证券', entity_type: 'context', mention_count: 2, aliases: [] }
     ],
     relations: [
-      { relation_type: 'works_at', value: null, confidence: 0.8, evidence_count: 2,
-        subject_name: '张三', subject_type: 'person', object_name: '国金证券', object_type: 'context' }
+      {
+        relation_type: 'works_at',
+        value: null,
+        confidence: 0.8,
+        evidence_count: 2,
+        subject_name: '张三',
+        subject_type: 'person',
+        object_name: '国金证券',
+        object_type: 'context'
+      }
     ],
     memo_count: 12,
     created_at: '2026-07-01T00:00:00+00:00',
@@ -81,8 +101,15 @@ describe('MemoryPage', () => {
 
   it('renders the no_data empty state when no founder/memory yet', async () => {
     getMemoryBrowse.mockResolvedValue(
-      payload({ status: 'no_data', atoms: [], entities: [], relations: [],
-                memo_count: 0, created_at: null, message: 'custom nudge' })
+      payload({
+        status: 'no_data',
+        atoms: [],
+        entities: [],
+        relations: [],
+        memo_count: 0,
+        created_at: null,
+        message: 'custom nudge'
+      })
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('还没有记忆')).toBeTruthy())
@@ -91,8 +118,15 @@ describe('MemoryPage', () => {
 
   it('renders the error state (never throws)', async () => {
     getMemoryBrowse.mockResolvedValue(
-      payload({ status: 'error', atoms: [], entities: [], relations: [],
-                memo_count: 0, created_at: null, message: 'disk fell over' })
+      payload({
+        status: 'error',
+        atoms: [],
+        entities: [],
+        relations: [],
+        memo_count: 0,
+        created_at: null,
+        message: 'disk fell over'
+      })
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('暂时打不开')).toBeTruthy())

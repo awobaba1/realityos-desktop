@@ -329,7 +329,8 @@ export const ja = defineLocale({
       backdropTitle: 'チャット背景',
       backdropDesc: '会話の背後に表示される淡い彫像の画像。',
       launchViewTitle: '起動時のデフォルトページ',
-      launchViewDesc: 'アプリ起動時に開くページ。チャットは前回の会話を再開し、記憶とインサイトは毎回そのページを最初に開きます。',
+      launchViewDesc:
+        'アプリ起動時に開くページ。チャットは前回の会話を再開し、記憶とインサイトは毎回そのページを最初に開きます。',
       launchViewChat: 'チャット',
       launchViewMemory: '記憶',
       launchViewInsights: 'インサイト',
@@ -1513,7 +1514,7 @@ export const ja = defineLocale({
     sufficiencySufficient: 'データ十分',
     sufficiencyPartial: 'データ限定的',
     sufficiencyInsufficient: '準備中',
-    periodLabel: (start, end) => (start && end ? `${start} ～ ${end}` : start ?? '')
+    periodLabel: (start, end) => (start && end ? `${start} ～ ${end}` : (start ?? ''))
   },
 
   memory: {
@@ -1521,8 +1522,8 @@ export const ja = defineLocale({
     tabAtoms: 'タイムライン',
     tabEntities: '人物とエンティティ',
     tabRelations: '関係',
-    memoCountLabel: (count) => (count != null ? `${count} 件` : ''),
-    memberSinceLabel: (date) => (date ? `${date.slice(0, 10)} から` : ''),
+    memoCountLabel: count => (count != null ? `${count} 件` : ''),
+    memberSinceLabel: date => (date ? `${date.slice(0, 10)} から` : ''),
     noDataTitle: 'まだ記憶がありません',
     noDataDesc: 'あと数日話しかけてくれれば、人や出来事を記録します。',
     errorTitle: '開けません',
@@ -1548,9 +1549,9 @@ export const ja = defineLocale({
     entityTypeTask: 'タスク',
     entityTypeTopic: 'トピック',
     entityTypeContext: '場所/組織',
-    mentionsLabel: (count) => `${count} 件の言及`,
+    mentionsLabel: count => `${count} 件の言及`,
     confidenceLabel: '信頼度',
-    aliasesLabel: '別名',
+    aliasesLabel: '別名'
   },
 
   sidebar: {
@@ -1909,7 +1910,8 @@ export const ja = defineLocale({
     done: '完了',
     applyingBody:
       'RealityOS アップデーターが独自のウィンドウで引き継ぎ、完了後に自動的に RealityOS を再度開きます。更新中はご自分で RealityOS を開き直さないでください。',
-    applyingBodyBackend: 'リモートバックエンドが更新を適用して再起動します。復帰すると RealityOS が自動的に再接続します。',
+    applyingBodyBackend:
+      'リモートバックエンドが更新を適用して再起動します。復帰すると RealityOS が自動的に再接続します。',
     applyingClose: 'このウィンドウは更新中に閉じ、その後 RealityOS が自動的に再度開きます。',
     errorTitle: '更新が完了しませんでした',
     errorBody: 'ご安心ください。何も失われていません。今すぐ再試行できます。',

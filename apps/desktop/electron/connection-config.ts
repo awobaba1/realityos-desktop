@@ -129,8 +129,7 @@ async function resolveTestWsUrl(baseUrl, authMode, token, deps: any = {}) {
       ticket = await mintTicket(baseUrl)
     } catch (error) {
       const err = new Error(
-        '已通过 HTTP 连上网关，但无法为 OAuth 会话签发 WebSocket 票据（可能已过期）。' +
-          '请到「设置 → 网关」重新登录。'
+        '已通过 HTTP 连上网关，但无法为 OAuth 会话签发 WebSocket 票据（可能已过期）。' + '请到「设置 → 网关」重新登录。'
       )
 
       ;(err as any).needsOauthLogin = true

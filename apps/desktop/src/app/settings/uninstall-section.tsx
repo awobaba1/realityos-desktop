@@ -133,9 +133,7 @@ export function UninstallSection() {
         ) : pendingOption ? (
           <div>
             <p className="text-sm font-medium text-destructive">确认卸载</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              这将移除{pendingOption.consequence}。该操作无法撤销。
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">这将移除{pendingOption.consequence}。该操作无法撤销。</p>
             {summary?.running_app_path && (
               <p className="mt-1 font-mono text-[0.68rem] text-muted-foreground/60">应用：{summary.running_app_path}</p>
             )}

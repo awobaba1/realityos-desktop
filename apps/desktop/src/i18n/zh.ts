@@ -1769,7 +1769,7 @@ export const zh: Translations = {
     sufficiencySufficient: '数据充分',
     sufficiencyPartial: '数据有限',
     sufficiencyInsufficient: '还在热身',
-    periodLabel: (start, end) => (start && end ? `${start} ～ ${end}` : start ?? '')
+    periodLabel: (start, end) => (start && end ? `${start} ～ ${end}` : (start ?? ''))
   },
 
   memory: {
@@ -1777,8 +1777,8 @@ export const zh: Translations = {
     tabAtoms: '时间线',
     tabEntities: '人物与实体',
     tabRelations: '关系',
-    memoCountLabel: (count) => (count != null ? `${count} 条记录` : ''),
-    memberSinceLabel: (date) => (date ? `始于 ${date.slice(0, 10)}` : ''),
+    memoCountLabel: count => (count != null ? `${count} 条记录` : ''),
+    memberSinceLabel: date => (date ? `始于 ${date.slice(0, 10)}` : ''),
     noDataTitle: '还没有记忆',
     noDataDesc: '继续和我聊几天，我就能帮你把人和事记下来。',
     errorTitle: '暂时打不开',
@@ -1804,9 +1804,9 @@ export const zh: Translations = {
     entityTypeTask: '任务',
     entityTypeTopic: '主题',
     entityTypeContext: '地点/机构',
-    mentionsLabel: (count) => `${count} 次提及`,
+    mentionsLabel: count => `${count} 次提及`,
     confidenceLabel: '置信',
-    aliasesLabel: '别名',
+    aliasesLabel: '别名'
   },
 
   sidebar: {

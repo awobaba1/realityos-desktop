@@ -96,8 +96,11 @@ describe('InsightsPage', () => {
 
   it('renders the cold-start placeholder distinctly (warming-up badge)', async () => {
     getWeeklyMirror.mockResolvedValue(
-      mirror({ status: 'placeholder', data_sufficiency: 'insufficient',
-               content: '# 本周镜面\n\n我还在了解你，继续和我聊几天。' })
+      mirror({
+        status: 'placeholder',
+        data_sufficiency: 'insufficient',
+        content: '# 本周镜面\n\n我还在了解你，继续和我聊几天。'
+      })
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('还在热身')).toBeTruthy())
@@ -107,8 +110,13 @@ describe('InsightsPage', () => {
 
   it('renders the no_data empty state when there is no report yet', async () => {
     getWeeklyMirror.mockResolvedValue(
-      mirror({ status: 'no_data', data_sufficiency: null, content: null,
-               period_key: '2026-07-06', message: 'custom nudge' })
+      mirror({
+        status: 'no_data',
+        data_sufficiency: null,
+        content: null,
+        period_key: '2026-07-06',
+        message: 'custom nudge'
+      })
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('还没有报告')).toBeTruthy())
@@ -117,8 +125,7 @@ describe('InsightsPage', () => {
 
   it('renders the error state (never throws, never 5xx-equivalent)', async () => {
     getWeeklyMirror.mockResolvedValue(
-      mirror({ status: 'error', data_sufficiency: null, content: null,
-               period_key: null, message: 'disk fell over' })
+      mirror({ status: 'error', data_sufficiency: null, content: null, period_key: null, message: 'disk fell over' })
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('暂时读不到报告')).toBeTruthy())
@@ -130,8 +137,6 @@ describe('InsightsPage', () => {
     renderPage()
     await waitFor(() => expect(screen.getByText('数据充分')).toBeTruthy())
     screen.getByText('刷新').click()
-    await waitFor(() =>
-      expect(getWeeklyMirror).toHaveBeenCalledWith(expect.objectContaining({ force: true }))
-    )
+    await waitFor(() => expect(getWeeklyMirror).toHaveBeenCalledWith(expect.objectContaining({ force: true })))
   })
 })

@@ -60,7 +60,8 @@ describe('SovereigntySettings (ADR-V6-023)', () => {
     Object.defineProperty(globalThis.URL, 'createObjectURL', { value: createObjectURL, configurable: true })
     Object.defineProperty(globalThis.URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
     exportSovereigntyData.mockResolvedValue({
-      status: 'ok', data: { _export_meta: { user_id: 'u1' }, memos: [] }
+      status: 'ok',
+      data: { _export_meta: { user_id: 'u1' }, memos: [] }
     })
     renderSovereignty()
     fireEvent.click(await screen.findByRole('button', { name: /Export JSON/ }))
@@ -71,14 +72,15 @@ describe('SovereigntySettings (ADR-V6-023)', () => {
   it('soft-deletes in mode B after the confirm dialog', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     deleteSovereigntyData.mockResolvedValue({
-      status: 'ok', mode: 'B', marked: { memos: 2, identity_events: 1 }
+      status: 'ok',
+      mode: 'B',
+      marked: { memos: 2, identity_events: 1 }
     })
     renderSovereignty()
     await screen.findByText('Data sovereignty')
     fireEvent.click(screen.getByRole('button', { name: 'Mode B: total forgetting' }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
-    await waitFor(() =>
-      expect(deleteSovereigntyData).toHaveBeenCalledWith(expect.objectContaining({ mode: 'B' })))
+    await waitFor(() => expect(deleteSovereigntyData).toHaveBeenCalledWith(expect.objectContaining({ mode: 'B' })))
     expect(await screen.findByText(/Soft-delete complete/)).toBeTruthy()
     confirmSpy.mockRestore()
   })
