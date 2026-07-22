@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { patchMessagesYml } from './patch-nsis-zh-cn.mjs'
+import { pathToFileURL } from 'node:url'
+import { patchMessagesYml, isMainModule } from './patch-nsis-zh-cn.mjs'
 
 // ADR-V6-081 回归测试：防 app-builder-lib 升级改了 messages.yml 结构后，
 // 补丁静默失效（key 找不到→throw / 结构变→不注入），让英文弹窗悄悄回潮。
@@ -84,5 +85,25 @@ describe('patchMessagesYml', () => {
     const lines = out.split('\n')
     const enIdx = lines.findIndex(l => l === '  en: Failed to decompress files.')
     expect(lines[enIdx + 1]).toBe('  zh_CN: 解压文件失败。请尝试重新运行安装程序。')
+  })
+})
+
+describe('isMainModule（跨平台主模块守卫）', () => {
+  // C4 回归：v2026.7.28 守卫用 `file://${argv[1]}` 字符串拼接，Windows/含空格
+  // 路径下与 import.meta.url 不匹配 → main() 不跑 → NSIS 补丁在 Windows CI
+  // 静默未注入（构建绿但 exe 英文 = 假绿）。正确做法是 pathToFileURL 比对。
+  // 用含空格路径做可移植回归（空格 encode 成 %20，能区分两种实现），posix/Windows CI 都能跑。
+  it('argv[1] 与其 file URL 对应 → true（round-trip）', () => {
+    const argv = '/abs/path/patch-nsis-zh-cn.mjs'
+    expect(isMainModule(argv, pathToFileURL(argv).href)).toBe(true)
+  })
+
+  it('路径含空格 → 仍 true（防 file://${argv} 字符串拼接回归，v2026.7.28 根因）', () => {
+    const argv = '/abs/a b/patch.mjs'
+    expect(isMainModule(argv, pathToFileURL(argv).href)).toBe(true)
+  })
+
+  it('argv[1] 与 moduleUrl 不对应 → false（被 import 时守卫生效）', () => {
+    expect(isMainModule('/abs/vitest', 'file:///abs/patch.mjs')).toBe(false)
   })
 })

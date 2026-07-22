@@ -46,7 +46,8 @@
 
 - **正则 `.test()` 过 ≠ `.match()[1]` 可用**：本地首轮调试，KEY_RE `/^[A-Za-z0-9_]+:\s*$/` 用 `.test('decompressionFailed:')` 返回 true（隔离测正则时用的就是 test），但**没有捕获组** → `match()[1]` 永远 undefined → key 恒 null → 补丁从不触发，函数原样返回输入。表现：vitest 5/7 红、实跑输出等于输入。修法：`/^([A-Za-z0-9_]+):\s*$/` 加捕获组。**教训：验证正则提取时必须测真实的 `match()[1]` 输出，不能只信 `.test()`。**
 - **「补丁跑了」≠「补丁生效」**：若 CI 直接 `node run-electron-builder.mjs` 绕过 `npm run builder`，prebuilder 不触发 → 补丁形同虚设（假绿）。必须核 CI 调用链确认走 npm 生命周期（已核 `desktop-build.yml:88`）。
+- **🔥 ESM 主模块守卫必须跨平台（v2026.7.28 Windows 假绿根因）**：为可测试把补丁逻辑包进 `main()`，用 `if (import.meta.url === \`file://${process.argv[1]}\`)` 守卫。这在 macOS 成立（argv 是 posix 路径），但 **Windows 上 `process.argv[1]` 是 `C:\...\x.mjs`（反斜杠+盘符），`import.meta.url` 是 `file:///C:/...`，字符串拼接永不匹配 → `main()` 不执行 → NSIS 补丁在 Windows CI 静默未注入，而 Windows 构建照样绿、exe 照样产出（英文）= 假绿**。而这恰是 NSIS 补丁唯一需要的平台。修法：改用 Node 官方 canonical 检测 `pathToFileURL(process.argv[1]).href === import.meta.url`（导出 `isMainModule` 便于回归测试）。**教训：(1) 平台相关字符串比对要用 `pathToFileURL`/`fileURLToPath`，勿手拼 `file://`；(2) 「构建日志有 prebuilder 命令行」≠「补丁逻辑真跑了」——必须 grep 补丁自身的 stdout（如「已注入 zh_CN」）确认 main() 执行，且要在目标平台（Windows）核，不能只在 mac 核。** 回归测试用含空格路径（`%20` 编码）区分两种实现，posix/Windows CI 都可跑。
 
 ## 状态
 
-messages.yml 3 个 key 已补 zh_CN；本地实跑 + 幂等 + 7 用例全绿；CI 调用链已核走 prebuilder。需切 **v2026.7.28** 重新构建 exe，补丁才随新镜像真正进入安装包（v2026.7.27 的 exe 已固化英文，需新构建替换）。
+messages.yml 3 个 key 已补 zh_CN；本地实跑 + 幂等 + 10 用例（含 isMainModule 跨平台守卫）全绿；CI 调用链已核走 prebuilder。**v2026.7.28 因 Windows 守卫 bug 为假绿（exe 仍英文），切 v2026.7.29 用 `pathToFileURL` 守卫修复后，Windows CI 日志确认「已注入 zh_CN」、exe 真零英文。**

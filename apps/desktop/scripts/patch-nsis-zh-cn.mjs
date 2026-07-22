@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 // ADR-V6-081: app-builder-lib 的 nsis/messages.yml 有 3 个 key 漏了 zh_CN
 // (decompressionFailed / uninstallFailed / appClosing)。NSIS 对缺失 locale
@@ -86,6 +87,19 @@ function main() {
 }
 
 // 仅在直接执行时跑 main（被 import 做测试时不跑）。
-if (import.meta.url === `file://${process.argv[1]}`) {
+// 必须用 pathToFileURL 跨平台比对：Windows 的 process.argv[1] 是
+// `C:\...\x.mjs`（反斜杠 + 盘符），而 import.meta.url 是 `file:///C:/...`，
+// 字符串拼接 `file://${argv[1]}` 在 Windows 永不匹配 → main() 不跑。
+// 历史教训：v2026.7.28 因此在 Windows CI 未注入 zh_CN（构建绿但 exe 仍英文 =
+// 假绿），已切 v2026.7.29 修。导出 isMainModule 便于回归测试（C4）。
+export function isMainModule(argv1, moduleUrl) {
+  try {
+    return pathToFileURL(argv1).href === moduleUrl
+  } catch {
+    return false
+  }
+}
+
+if (isMainModule(process.argv[1], import.meta.url)) {
   main()
 }
