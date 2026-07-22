@@ -2599,11 +2599,15 @@ def main():
             # commit (lockfile out of sync) — silent CI red, same class as
             # ADR-V6-076 P0-2. Abort non-zero if uv lock fails or times out.
             try:
+                # ADR-V6-080: 300s was too tight on a COLD cache (this repo
+                # resolves 233 packages; cold >300s → abort). Warm cache finishes
+                # in ~127s. 600s gives the cold path headroom so the release no
+                # longer aborts mid-publish.
                 uv_result = subprocess.run(
-                    ["uv", "lock"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=300
+                    ["uv", "lock"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=600
                 )
             except subprocess.TimeoutExpired:
-                print("  ✗ uv lock timed out after 300s — uv.lock not regenerated")
+                print("  ✗ uv lock timed out after 600s — uv.lock not regenerated")
                 return 1
             if uv_result.returncode != 0:
                 print(f"  ✗ uv lock failed (rc={uv_result.returncode}): {uv_result.stderr.strip()}")
